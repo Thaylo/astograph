@@ -1083,25 +1083,30 @@ class CodeStructureTools:
         exact = [r for r in results if r.similarity_type == "exact"]
         high = [r for r in results if r.similarity_type == "high"]
 
+        warning = ""
         if exact:
             entry = exact[0].entry
-            # Don't block if the duplicate is in the same file (editing existing code)
             if entry.code_unit.file_path != file_path:
+                # Cross-file duplicate: block
                 return ToolResult(
                     f"BLOCKED: Cannot edit - identical code exists at "
                     f"{entry.code_unit.file_path}:{entry.code_unit.name} "
                     f"(lines {entry.code_unit.line_start}-{entry.code_unit.line_end}). "
                     f"Reuse the existing implementation instead."
                 )
-
-        warning = ""
-        if high:
-            entry = high[0].entry
-            if entry.code_unit.file_path != file_path:
+            else:
+                # Same-file duplicate: warn
                 warning = (
-                    f"WARNING: Similar code exists at {entry.code_unit.file_path}:{entry.code_unit.name}. "
+                    f"WARNING: Identical code exists in same file at {entry.code_unit.name} "
+                    f"(lines {entry.code_unit.line_start}-{entry.code_unit.line_end}). "
                     f"Consider reusing. Proceeding with edit.\n\n"
                 )
+        elif high:
+            entry = high[0].entry
+            warning = (
+                f"WARNING: Similar code exists at {entry.code_unit.file_path}:{entry.code_unit.name}. "
+                f"Consider reusing. Proceeding with edit.\n\n"
+            )
 
         # Read the file
         try:

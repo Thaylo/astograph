@@ -207,12 +207,14 @@ class TestMCPProtocol:
         tools = tools_response["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        # Verify all 9 tools are present
+        # Verify all 11 tools are present
         expected_tools = {
             "astograph_index",
             "astograph_analyze",
             "astograph_check",
             "astograph_compare",
+            "astograph_write",
+            "astograph_edit",
             "astograph_suppress",
             "astograph_unsuppress",
             "astograph_list_suppressions",

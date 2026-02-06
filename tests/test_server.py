@@ -1228,11 +1228,19 @@ def placeholder():
             assert "complex_operation" in content
             assert "placeholder" not in content
 
-    def test_edit_allows_same_file_duplicate(self, indexed_tools_with_file):
-        """Test that edit allows editing code that exists in the same file."""
+    def test_edit_warns_same_file_duplicate(self, indexed_tools_with_file):
+        """Test that edit warns but proceeds when duplicate exists in same file."""
         tools, tmpdir, existing_file = indexed_tools_with_file
-        # Edit the existing function - should not block since it's the same file
-        result = tools.edit(existing_file, "result = a + b", "result = a + b  # sum")
+        # Add a duplicate function to the same file - should warn but proceed
+        duplicate_code = """def add_values(x, y):
+    result = x + y
+    return result"""
+        result = tools.edit(
+            existing_file, "def placeholder():\n    # TODO: implement\n    pass", duplicate_code
+        )
+        # Should warn about same-file duplicate but still succeed
+        assert "WARNING" in result.text
+        assert "same file" in result.text
         assert "Successfully edited" in result.text
 
     def test_call_tool_edit(self, indexed_tools_with_file):

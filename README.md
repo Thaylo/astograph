@@ -61,9 +61,10 @@ The Docker image runs in **event-driven mode** by default, providing:
 - **In-memory index**: Always hot, no cold starts
 - **File watching**: Automatic re-indexing when files change
 - **Analysis cache**: Pre-computed results for instant `analyze()` responses
-- **SQLite persistence**: Survives container restarts within a session
 
 This is enabled via `ASTOGRAPH_EVENT_DRIVEN=1` in the Dockerfile. The `--tmpfs` mount in the configuration examples provides a writable space for the index while keeping your source code read-only.
+
+> **Note:** The index is ephemeral with the default Docker configuration. For persistent indexing across sessions, use a named volume instead of `--tmpfs`.
 
 ## Installation
 

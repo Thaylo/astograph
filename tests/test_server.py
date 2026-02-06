@@ -1487,3 +1487,80 @@ def {name}(data):
             if hashes:
                 batch_result = tools.suppress_batch(hashes)
                 assert "Run analyze" in batch_result.text
+
+
+class TestStatusTool:
+    """Tests for the astrograph_status tool."""
+
+    def test_status_idle(self, tools):
+        """Status should return idle when no codebase is indexed."""
+        result = tools.status()
+        assert "idle" in result.text
+
+    def test_status_ready_after_indexing(self, tools, sample_python_file):
+        """Status should return ready after indexing."""
+        tools.index_codebase(sample_python_file)
+        result = tools.status()
+        assert "ready" in result.text
+        assert "code units" in result.text
+
+    def test_status_during_background_indexing(self):
+        """Status should return indexing state when background indexing is running."""
+        tools = CodeStructureTools()
+        # Simulate background indexing in progress
+        tools._bg_index_done.clear()
+        result = tools.status()
+        assert "indexing" in result.text
+        # Clean up
+        tools._bg_index_done.set()
+
+    def test_call_tool_status(self, tools, sample_python_file):
+        """Test call_tool dispatch for status."""
+        tools.index_codebase(sample_python_file)
+        result = tools.call_tool("status", {})
+        assert "ready" in result.text
+
+
+class TestNonBlockingDuringIndexing:
+    """Tests that tools return immediately during background indexing."""
+
+    def test_analyze_returns_indexing_message(self):
+        """Analyze should return indexing status instead of blocking."""
+        tools = CodeStructureTools()
+        tools._bg_index_done.clear()
+        result = tools.analyze()
+        assert "indexing" in result.text.lower()
+        assert "Try again" in result.text
+        tools._bg_index_done.set()
+
+    def test_check_returns_indexing_message(self):
+        """Check should return indexing status instead of blocking."""
+        tools = CodeStructureTools()
+        tools._bg_index_done.clear()
+        result = tools.check("def foo(): pass")
+        assert "indexing" in result.text.lower()
+        tools._bg_index_done.set()
+
+    def test_suppress_returns_indexing_message(self):
+        """Suppress should return indexing status instead of blocking."""
+        tools = CodeStructureTools()
+        tools._bg_index_done.clear()
+        result = tools.suppress("some_hash")
+        assert "indexing" in result.text.lower()
+        tools._bg_index_done.set()
+
+    def test_write_returns_indexing_message(self):
+        """Write should return indexing status instead of blocking."""
+        tools = CodeStructureTools()
+        tools._bg_index_done.clear()
+        result = tools.write("/tmp/test.py", "def foo(): pass")
+        assert "indexing" in result.text.lower()
+        tools._bg_index_done.set()
+
+    def test_edit_returns_indexing_message(self):
+        """Edit should return indexing status instead of blocking."""
+        tools = CodeStructureTools()
+        tools._bg_index_done.clear()
+        result = tools.edit("/tmp/test.py", "old", "new")
+        assert "indexing" in result.text.lower()
+        tools._bg_index_done.set()

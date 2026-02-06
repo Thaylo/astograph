@@ -144,6 +144,7 @@ class CodeStructureTools:
         self._bg_index_thread: threading.Thread | None = None
         self._bg_index_done = threading.Event()
         self._bg_index_done.set()  # Initially "done" (no background work)
+        self._bg_index_progress: str = ""
 
         # Auto-index /workspace at startup (Docker)
         # Run in background so the MCP handshake completes immediately.
@@ -159,9 +160,12 @@ class CodeStructureTools:
     def _background_index(self, path: str) -> None:
         """Index a codebase in the background."""
         try:
+            self._bg_index_progress = "starting"
             self.index_codebase(path)
+            self._bg_index_progress = "done"
         except Exception:
             logger.exception(f"Background indexing failed for {path}")
+            self._bg_index_progress = "error"
         finally:
             self._bg_index_done.set()
 
@@ -172,8 +176,16 @@ class CodeStructureTools:
             logger.warning("Background indexing timed out after %ds", timeout)
 
     def _require_index(self) -> ToolResult | None:
-        """Return error result if index is empty, None if populated."""
-        self._wait_for_background_index()
+        """Return status if server is not ready, None if ready.
+
+        Returns immediately during background indexing instead of blocking.
+        """
+        if not self._bg_index_done.is_set():
+            entry_count = len(self.index.entries)
+            return ToolResult(
+                f"Server is indexing the codebase ({entry_count} entries so far). "
+                "Try again in a few seconds."
+            )
         if not self.index.entries:
             return ToolResult("No code indexed. Call index_codebase first.")
         return None
@@ -710,6 +722,19 @@ class CodeStructureTools:
             prefix + f"Suppressed hashes ({len(suppressed)}):\n" + "\n".join(suppressed)
         )
 
+    def status(self) -> ToolResult:
+        """Return current server status without blocking."""
+        if not self._bg_index_done.is_set():
+            entry_count = len(self.index.entries)
+            return ToolResult(f"Status: indexing ({entry_count} entries so far)")
+        if not self.index.entries:
+            return ToolResult("Status: idle (no codebase indexed)")
+        stats = self.index.get_stats()
+        return ToolResult(
+            f"Status: ready ({stats['function_entries']} code units, "
+            f"{stats['indexed_files']} files)"
+        )
+
     def _format_file_list(self, files: list[str], label: str, max_items: int = 10) -> list[str]:
         """Format a list of files for output, with truncation."""
         if not files:
@@ -971,6 +996,8 @@ class CodeStructureTools:
             return self.unsuppress_batch(wl_hashes=arguments["wl_hashes"])
         elif name == "list_suppressions":
             return self.list_suppressions()
+        elif name == "status":
+            return self.status()
         elif name == "check_staleness":
             return self.check_staleness(path=arguments.get("path"))
         elif name == "write":

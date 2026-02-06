@@ -3,7 +3,7 @@ MCP server for code structure analysis.
 
 Auto-indexes the codebase at startup and maintains the index via file watching.
 
-Provides 8 tools (all prefixed with astrograph_):
+Provides 9 tools (all prefixed with astrograph_):
 - astrograph_analyze: Find duplicates and similar patterns
 - astrograph_write: Write file with duplicate detection (blocks if duplicate exists)
 - astrograph_edit: Edit file with duplicate detection (blocks if duplicate exists)
@@ -12,6 +12,7 @@ Provides 8 tools (all prefixed with astrograph_):
 - astrograph_unsuppress: Remove suppression from a hash
 - astrograph_unsuppress_batch: Remove suppression from multiple hashes
 - astrograph_list_suppressions: List all suppressed hashes
+- astrograph_status: Check server readiness (returns instantly even during indexing)
 """
 
 import asyncio
@@ -42,7 +43,14 @@ def set_tools(tools: CodeStructureTools) -> None:
 
 def create_server() -> Server:
     """Create and configure the MCP server."""
-    server = Server("code-structure-mcp")
+    server = Server(
+        "code-structure-mcp",
+        instructions=(
+            "ASTrograph indexes the codebase in the background at startup. "
+            "If the first tool call is slow, indexing is still in progress. "
+            "Use astrograph_status to check readiness."
+        ),
+    )
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
@@ -128,6 +136,14 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="astrograph_status",
+                description="Check server readiness. Returns instantly even during indexing.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
                 name="astrograph_write",
                 description="Write file. Blocks if duplicate exists, warns on similarity.",
                 inputSchema={
@@ -179,6 +195,7 @@ def create_server() -> Server:
         "astrograph_unsuppress": "unsuppress",
         "astrograph_unsuppress_batch": "unsuppress_batch",
         "astrograph_list_suppressions": "list_suppressions",
+        "astrograph_status": "status",
     }
 
     @server.call_tool()

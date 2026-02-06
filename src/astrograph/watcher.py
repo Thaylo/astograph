@@ -5,24 +5,21 @@ Uses watchdog library to monitor filesystem changes and trigger
 index updates automatically.
 """
 
+from __future__ import annotations
+
 import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
+
 from .index import _is_skip_dir
 
-try:
-    from watchdog.events import FileSystemEvent, FileSystemEventHandler
-    from watchdog.observers import Observer
-
-    HAS_WATCHDOG = True
-except ImportError:
-    HAS_WATCHDOG = False
-    Observer = None
-    FileSystemEventHandler = object
-    FileSystemEvent = Any
+HAS_WATCHDOG = True
 
 logger = logging.getLogger(__name__)
 
@@ -101,35 +98,38 @@ class PythonFileHandler(FileSystemEventHandler):
         p = Path(path)
         return p.suffix == ".py" and not _should_skip_path(p)
 
-    def _handle_event(self, event: "FileSystemEvent", event_type: str, handler: Callable) -> None:
+    def _handle_event(self, event: FileSystemEvent, event_type: str, handler: Callable) -> None:
         """Generic event handler to reduce duplication."""
         if event.is_directory:
             return
-        if self._is_python_file(event.src_path):
-            logger.debug(f"File {event_type}: {event.src_path}")
-            handler(event.src_path)
+        src = str(event.src_path)
+        if self._is_python_file(src):
+            logger.debug(f"File {event_type}: {src}")
+            handler(src)
 
-    def on_modified(self, event: "FileSystemEvent") -> None:
+    def on_modified(self, event: FileSystemEvent) -> None:
         self._handle_event(event, "modified", self._on_modified)
 
-    def on_created(self, event: "FileSystemEvent") -> None:
+    def on_created(self, event: FileSystemEvent) -> None:
         self._handle_event(event, "created", self._on_created)
 
-    def on_deleted(self, event: "FileSystemEvent") -> None:
+    def on_deleted(self, event: FileSystemEvent) -> None:
         self._handle_event(event, "deleted", self._on_deleted)
 
-    def on_moved(self, event: "FileSystemEvent") -> None:
+    def on_moved(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
 
         # Handle as delete + create
-        if hasattr(event, "src_path") and self._is_python_file(event.src_path):
-            logger.debug(f"File moved from: {event.src_path}")
-            self._on_deleted(event.src_path)
+        src = str(event.src_path)
+        if self._is_python_file(src):
+            logger.debug(f"File moved from: {src}")
+            self._on_deleted(src)
 
-        if hasattr(event, "dest_path") and self._is_python_file(event.dest_path):
-            logger.debug(f"File moved to: {event.dest_path}")
-            self._on_created(event.dest_path)
+        dest = str(getattr(event, "dest_path", ""))
+        if dest and self._is_python_file(dest):
+            logger.debug(f"File moved to: {dest}")
+            self._on_created(dest)
 
     def cancel_pending(self) -> None:
         """Cancel pending debounced callbacks."""
@@ -163,11 +163,6 @@ class FileWatcher:
             on_file_deleted: Callback when a Python file is deleted
             debounce_delay: Seconds to wait before processing rapid events
         """
-        if not HAS_WATCHDOG:
-            raise ImportError(
-                "watchdog is required for file watching. Install with: pip install watchdog"
-            )
-
         self.root_path = Path(root_path).resolve()
         self._handler = PythonFileHandler(
             on_modified=on_file_changed,
@@ -175,7 +170,7 @@ class FileWatcher:
             on_deleted=on_file_deleted,
             debounce_delay=debounce_delay,
         )
-        self._observer: Observer | None = None
+        self._observer: BaseObserver | None = None
         self._started = False
 
     def start(self) -> None:
@@ -212,7 +207,7 @@ class FileWatcher:
         """Check if the watcher is active."""
         return self._started
 
-    def __enter__(self) -> "FileWatcher":
+    def __enter__(self) -> FileWatcher:
         self.start()
         return self
 
@@ -273,7 +268,7 @@ class FileWatcherPool:
                 watcher.stop()
             self._watchers.clear()
 
-    def __enter__(self) -> "FileWatcherPool":
+    def __enter__(self) -> FileWatcherPool:
         return self
 
     def __exit__(self, *args: Any) -> None:

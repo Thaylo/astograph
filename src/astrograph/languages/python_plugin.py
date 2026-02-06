@@ -11,7 +11,7 @@ from collections.abc import Iterator
 
 import networkx as nx
 
-from .base import ASTGraph, BaseLanguagePlugin, CodeUnit, compute_label_histogram
+from .base import ASTGraph, BaseLanguagePlugin, CodeUnit, build_ast_graph
 
 # Block types to extract from functions
 BLOCK_TYPES = (ast.For, ast.While, ast.If, ast.Try, ast.With, ast.AsyncFor, ast.AsyncWith)
@@ -341,30 +341,7 @@ def extract_code_units(
 
 def code_unit_to_ast_graph(unit: CodeUnit) -> ASTGraph:
     """Convert a CodeUnit to an ASTGraph with metadata."""
-    graph = ast_to_graph(unit.code)
-    label_histogram = compute_label_histogram(graph)
-
-    # Compute depth
-    if graph.number_of_nodes() == 0:
-        depth = 0
-    else:
-        roots = [n for n in graph.nodes() if graph.in_degree(n) == 0]
-        if roots:
-            depth = 0
-            for root in roots:
-                lengths = nx.single_source_shortest_path_length(graph, root)
-                if lengths:
-                    depth = max(depth, max(lengths.values()))
-        else:
-            depth = 0
-
-    return ASTGraph(
-        graph=graph,
-        code_unit=unit,
-        node_count=graph.number_of_nodes(),
-        depth=depth,
-        label_histogram=label_histogram,
-    )
+    return build_ast_graph(ast_to_graph(unit.code), unit)
 
 
 class PythonPlugin(BaseLanguagePlugin):
@@ -397,6 +374,3 @@ class PythonPlugin(BaseLanguagePlugin):
         normalize_ops: bool = False,
     ) -> nx.DiGraph:
         return ast_to_graph(source, normalize_ops)
-
-    def code_unit_to_ast_graph(self, unit: CodeUnit) -> ASTGraph:
-        return code_unit_to_ast_graph(unit)

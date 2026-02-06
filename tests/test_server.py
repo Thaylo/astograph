@@ -1403,3 +1403,127 @@ def transform_data(data):
 
             assert wl_hash in tools2.index.suppressed_hashes
             tools2.close()
+
+
+class TestAnalyzeReportImprovements:
+    """Tests for analyze report quality improvements."""
+
+    @staticmethod
+    def _complex_func(name: str = "process_items") -> str:
+        return f"""
+def {name}(items):
+    results = []
+    for item in items:
+        if item > 0:
+            results.append(item * 2)
+    return results
+"""
+
+    def test_analyze_report_uses_relative_paths(self, tools):
+        """Report paths should be relative, not absolute."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, "module_a.py")
+            with open(file1, "w") as f:
+                f.write(self._complex_func("process_items"))
+
+            file2 = os.path.join(tmpdir, "module_b.py")
+            with open(file2, "w") as f:
+                f.write(self._complex_func("transform_data"))
+
+            tools.index_codebase(tmpdir)
+            result = tools.analyze()
+            details = _get_analyze_details(tools, result)
+
+            if "suppress(wl_hash=" in details:
+                # No absolute path prefix should appear in the report
+                assert tmpdir not in details, f"Report contains absolute path prefix '{tmpdir}'"
+                # Relative paths should appear
+                assert "module_a.py:" in details or "module_b.py:" in details
+
+    @staticmethod
+    def _different_complex_func(name: str = "check_values") -> str:
+        """A structurally different complex function for test-only duplicates."""
+        return f"""
+def {name}(data):
+    count = 0
+    for val in data:
+        if val < 0:
+            count += 1
+        else:
+            count -= 1
+    return count
+"""
+
+    def test_analyze_report_separates_source_and_tests(self, tools):
+        """Report should have section headers when both source and test duplicates exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Source duplicates (one structure)
+            src_dir = os.path.join(tmpdir, "src")
+            os.makedirs(src_dir)
+            with open(os.path.join(src_dir, "module_a.py"), "w") as f:
+                f.write(self._complex_func("process_items"))
+            with open(os.path.join(src_dir, "module_b.py"), "w") as f:
+                f.write(self._complex_func("transform_data"))
+
+            # Test duplicates (different structure so they form a separate group)
+            tests_dir = os.path.join(tmpdir, "tests")
+            os.makedirs(tests_dir)
+            with open(os.path.join(tests_dir, "test_a.py"), "w") as f:
+                f.write(self._different_complex_func("test_check_a"))
+            with open(os.path.join(tests_dir, "test_b.py"), "w") as f:
+                f.write(self._different_complex_func("test_check_b"))
+
+            tools.index_codebase(tmpdir)
+            result = tools.analyze()
+            details = _get_analyze_details(tools, result)
+
+            if "suppress(wl_hash=" in details:
+                assert "=== Source code ===" in details
+                assert "=== Tests ===" in details
+                # Source section should appear before Tests section
+                assert details.index("=== Source code ===") < details.index("=== Tests ===")
+
+    def test_analyze_summary_shows_source_vs_test_counts(self, tools):
+        """Inline summary should include source vs test breakdown."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Source duplicates (one structure)
+            src_dir = os.path.join(tmpdir, "src")
+            os.makedirs(src_dir)
+            with open(os.path.join(src_dir, "module_a.py"), "w") as f:
+                f.write(self._complex_func("process_items"))
+            with open(os.path.join(src_dir, "module_b.py"), "w") as f:
+                f.write(self._complex_func("transform_data"))
+
+            # Test duplicates (different structure)
+            tests_dir = os.path.join(tmpdir, "tests")
+            os.makedirs(tests_dir)
+            with open(os.path.join(tests_dir, "test_a.py"), "w") as f:
+                f.write(self._different_complex_func("test_check_a"))
+            with open(os.path.join(tests_dir, "test_b.py"), "w") as f:
+                f.write(self._different_complex_func("test_check_b"))
+
+            tools.index_codebase(tmpdir)
+            result = tools.analyze()
+
+            if "duplicate groups" in result.text:
+                assert "in source" in result.text
+                assert "in tests" in result.text
+
+    def test_suppress_batch_response_includes_refresh_hint(self, tools):
+        """suppress_batch response should include 'Run analyze' hint."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "module_a.py"), "w") as f:
+                f.write(self._complex_func("process_items"))
+            with open(os.path.join(tmpdir, "module_b.py"), "w") as f:
+                f.write(self._complex_func("transform_data"))
+
+            tools.index_codebase(tmpdir)
+            result = tools.analyze()
+            details = _get_analyze_details(tools, result)
+
+            import re
+
+            hashes = re.findall(r'suppress\(wl_hash="([^"]+)"\)', details)
+            if hashes:
+                batch_result = tools.suppress_batch(hashes)
+                assert "Run analyze" in batch_result.text

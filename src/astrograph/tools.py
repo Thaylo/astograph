@@ -370,10 +370,18 @@ class CodeStructureTools:
             return self.index.verify_isomorphism(group.entries[0], group.entries[1])
         return False
 
+    def _relative_path(self, file_path: str) -> str:
+        """Strip the indexed root to produce a relative path."""
+        root = self._last_indexed_path or ""
+        try:
+            return str(Path(file_path).relative_to(root))
+        except ValueError:
+            return file_path
+
     def _format_locations(self, entries: list[IndexEntry]) -> list[str]:
         """Format entry locations for output."""
         return [
-            f"{e.code_unit.file_path}:{e.code_unit.name}:L{e.code_unit.line_start}-{e.code_unit.line_end}"
+            f"{self._relative_path(e.code_unit.file_path)}:{e.code_unit.name}:L{e.code_unit.line_start}-{e.code_unit.line_end}"
             for e in entries
         ]
 
@@ -460,7 +468,7 @@ class CodeStructureTools:
             depths.sort(key=lambda x: x[0])
             if len(depths) >= 2 and depths[0][0] < depths[1][0]:
                 e = depths[0][1]
-                keep = f"{e.code_unit.file_path}:{e.code_unit.name}:L{e.code_unit.line_start}-{e.code_unit.line_end}"
+                keep = f"{self._relative_path(e.code_unit.file_path)}:{e.code_unit.name}:L{e.code_unit.line_start}-{e.code_unit.line_end}"
                 keep_reason = "shallowest path"
 
             findings.append(
@@ -520,30 +528,59 @@ class CodeStructureTools:
                 msg += f" {suppressed_count} suppressed."
             return ToolResult(invalidation_warning + staleness_warning + msg)
 
+        # Classify findings as source or test
+        def _is_test_location(loc: str) -> bool:
+            return "/tests/" in loc or loc.startswith("tests/") or "/test_" in loc
+
+        for f in findings:
+            f["is_test"] = all(_is_test_location(loc) for loc in f["locations"])
+
+        # Sort: source findings first, then test findings
+        source_findings = [f for f in findings if not f["is_test"]]
+        test_findings = [f for f in findings if f["is_test"]]
+
         lines: list[str] = []
 
-        for i, f in enumerate(findings, 1):
+        def _format_finding(num: int, f: dict[str, Any]) -> list[str]:
+            result: list[str] = []
             locs = ", ".join(f["locations"])
             wl_hash = f.get("hash", "")
             line_count = f.get("line_count", 0)
             verified = " (verified)" if f.get("verified") else ""
 
             if f["type"] == "exact":
-                lines.append(f"{i}.{verified} {locs} ({line_count} lines)")
+                result.append(f"{num}.{verified} {locs} ({line_count} lines)")
             elif f["type"] == "block":
                 block_type = f.get("block_type", "block")
                 parents = ", ".join(f.get("parent_funcs", []))
                 parent_info = f", in {parents}" if parents else ""
-                lines.append(
-                    f"{i}. [{block_type}]{verified} {locs} ({line_count} lines{parent_info})"
+                result.append(
+                    f"{num}. [{block_type}]{verified} {locs} ({line_count} lines{parent_info})"
                 )
             else:
-                lines.append(f"{i}. [pattern] {locs} ({line_count} lines)")
+                result.append(f"{num}. [pattern] {locs} ({line_count} lines)")
 
             if f.get("keep"):
-                lines.append(f"   Keep: {f['keep']} ({f['keep_reason']})")
-            lines.append(f'   suppress(wl_hash="{wl_hash}")')
+                result.append(f"   Keep: {f['keep']} ({f['keep_reason']})")
+            result.append(f'   suppress(wl_hash="{wl_hash}")')
+            result.append("")
+            return result
+
+        # Emit section headers when both source and test findings exist
+        has_both = bool(source_findings) and bool(test_findings)
+        num = 1
+        if has_both:
+            lines.append("=== Source code ===")
             lines.append("")
+        for f in source_findings:
+            lines.extend(_format_finding(num, f))
+            num += 1
+        if has_both:
+            lines.append("=== Tests ===")
+            lines.append("")
+        for f in test_findings:
+            lines.extend(_format_finding(num, f))
+            num += 1
 
         # Compact footer
         if suppressed_count > 0:
@@ -567,6 +604,21 @@ class CodeStructureTools:
             if pattern_count:
                 type_parts.append(f"{pattern_count} pattern")
             summary_parts = [f"Found {len(findings)} duplicate groups: {', '.join(type_parts)}."]
+
+            # Source vs test breakdown with duplicated line estimate
+            source_count = len(source_findings)
+            test_count = len(test_findings)
+            if source_count or test_count:
+                source_lines = sum(f["line_count"] * len(f["locations"]) for f in source_findings)
+                breakdown_parts = []
+                if source_count:
+                    breakdown_parts.append(
+                        f"{source_count} in source (~{source_lines} duplicated lines)"
+                    )
+                if test_count:
+                    breakdown_parts.append(f"{test_count} in tests")
+                summary_parts.append(f"  {', '.join(breakdown_parts)}.")
+
             if suppressed_count > 0:
                 summary_parts.append(f"+ {suppressed_count} suppressed.")
             line_count_report = full_output.count("\n") + 1
@@ -714,6 +766,8 @@ class CodeStructureTools:
             parts.append(f"{len(not_found)} not found: {', '.join(not_found)}")
         if not parts:
             parts.append("No hashes provided.")
+        if changed and suppress:
+            parts.append("Run analyze to refresh.")
         return ToolResult(prefix + " ".join(parts))
 
     def suppress_batch(self, wl_hashes: list[str]) -> ToolResult:

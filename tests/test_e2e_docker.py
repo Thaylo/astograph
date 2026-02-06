@@ -232,14 +232,10 @@ class TestMCPProtocol:
         tools_response = next((r for r in responses if r.get("id") == 2), None)
         tools = {t["name"]: t for t in tools_response["result"]["tools"]}
 
-        # Check analyze tool mentions Python
-        assert "Python" in tools["astrograph_analyze"]["description"]
-
-        # Check write tool mentions Python
-        assert "Python" in tools["astrograph_write"]["description"]
-
-        # Check edit tool mentions Python
-        assert "Python" in tools["astrograph_edit"]["description"]
+        # Check tool descriptions are present and meaningful
+        assert "duplicate" in tools["astrograph_analyze"]["description"].lower()
+        assert "write" in tools["astrograph_write"]["description"].lower()
+        assert "edit" in tools["astrograph_edit"]["description"].lower()
 
 
 class TestE2EWorkflow:

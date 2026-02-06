@@ -58,6 +58,36 @@ def node_match(n1_attrs: dict, n2_attrs: dict) -> bool:
     return n1_attrs.get("label") == n2_attrs.get("label")
 
 
+def build_ast_graph(graph: nx.DiGraph, unit: CodeUnit) -> ASTGraph:
+    """Build an ASTGraph from a pre-computed graph and code unit.
+
+    Shared logic for computing depth, label histogram, and assembling metadata.
+    Used by BaseLanguagePlugin and standalone code_unit_to_ast_graph functions.
+    """
+    label_histogram = compute_label_histogram(graph)
+
+    if graph.number_of_nodes() == 0:
+        depth = 0
+    else:
+        roots = [n for n in graph.nodes() if graph.in_degree(n) == 0]
+        if roots:
+            depth = 0
+            for root in roots:
+                lengths = nx.single_source_shortest_path_length(graph, root)
+                if lengths:
+                    depth = max(depth, max(lengths.values()))
+        else:
+            depth = 0
+
+    return ASTGraph(
+        graph=graph,
+        code_unit=unit,
+        node_count=graph.number_of_nodes(),
+        depth=depth,
+        label_histogram=label_histogram,
+    )
+
+
 @runtime_checkable
 class LanguagePlugin(Protocol):
     """Protocol defining what a language plugin must implement."""
@@ -144,27 +174,4 @@ class BaseLanguagePlugin:
 
     def code_unit_to_ast_graph(self, unit: CodeUnit) -> ASTGraph:
         """Convert a CodeUnit to an ASTGraph with metadata."""
-        graph = self.source_to_graph(unit.code)
-        label_histogram = compute_label_histogram(graph)
-
-        # Compute depth
-        if graph.number_of_nodes() == 0:
-            depth = 0
-        else:
-            roots = [n for n in graph.nodes() if graph.in_degree(n) == 0]
-            if roots:
-                depth = 0
-                for root in roots:
-                    lengths = nx.single_source_shortest_path_length(graph, root)
-                    if lengths:
-                        depth = max(depth, max(lengths.values()))
-            else:
-                depth = 0
-
-        return ASTGraph(
-            graph=graph,
-            code_unit=unit,
-            node_count=graph.number_of_nodes(),
-            depth=depth,
-            label_histogram=label_histogram,
-        )
+        return build_ast_graph(self.source_to_graph(unit.code), unit)

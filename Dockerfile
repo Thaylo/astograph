@@ -14,8 +14,9 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
 
-# Install (non-editable for production)
-RUN pip install --no-cache-dir .
+# Upgrade pip to fix CVE-2025-8869 and CVE-2026-1703, then install
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
 
 # Enable event-driven mode for in-memory caching and file watching
 ENV ASTOGRAPH_EVENT_DRIVEN=1

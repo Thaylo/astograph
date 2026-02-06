@@ -2,7 +2,7 @@
 
 import pytest
 
-from astograph.ast_to_graph import (
+from astrograph.ast_to_graph import (
     ASTGraph,
     CodeUnit,
     ast_to_graph,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from astograph import cli
+from astrograph import cli
 
 
 @pytest.fixture

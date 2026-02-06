@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 # Docker image to test (use local build for CI, published for release validation)
-DOCKER_IMAGE = os.environ.get("ASTOGRAPH_TEST_IMAGE", "thaylo/astograph")
+DOCKER_IMAGE = os.environ.get("ASTOGRAPH_TEST_IMAGE", "thaylo/astrograph")
 
 
 def send_mcp_messages(
@@ -156,7 +156,7 @@ class TestDockerImageBasics:
         assert result.returncode == 0, f"Docker image {DOCKER_IMAGE} not found"
 
     def test_python_import(self):
-        """Test that astograph can be imported in the container."""
+        """Test that astrograph can be imported in the container."""
         result = subprocess.run(
             [
                 "docker",
@@ -166,7 +166,7 @@ class TestDockerImageBasics:
                 "python",
                 DOCKER_IMAGE,
                 "-c",
-                "from astograph.server import create_server; print('OK')",
+                "from astrograph.server import create_server; print('OK')",
             ],
             capture_output=True,
             text=True,
@@ -209,17 +209,17 @@ class TestMCPProtocol:
 
         # Verify all 11 tools are present
         expected_tools = {
-            "astograph_index",
-            "astograph_analyze",
-            "astograph_check",
-            "astograph_compare",
-            "astograph_write",
-            "astograph_edit",
-            "astograph_suppress",
-            "astograph_unsuppress",
-            "astograph_list_suppressions",
-            "astograph_suppress_idiomatic",
-            "astograph_check_staleness",
+            "astrograph_index",
+            "astrograph_analyze",
+            "astrograph_check",
+            "astrograph_compare",
+            "astrograph_write",
+            "astrograph_edit",
+            "astrograph_suppress",
+            "astrograph_unsuppress",
+            "astrograph_list_suppressions",
+            "astrograph_suppress_idiomatic",
+            "astrograph_check_staleness",
         }
         assert expected_tools == tool_names
 
@@ -236,13 +236,13 @@ class TestMCPProtocol:
         tools = {t["name"]: t for t in tools_response["result"]["tools"]}
 
         # Check index tool mentions Python
-        assert "Python" in tools["astograph_index"]["description"]
+        assert "Python" in tools["astrograph_index"]["description"]
 
         # Check check tool mentions Python
-        assert "Python" in tools["astograph_check"]["description"]
+        assert "Python" in tools["astrograph_check"]["description"]
 
         # Check compare tool mentions Python
-        assert "Python" in tools["astograph_compare"]["description"]
+        assert "Python" in tools["astrograph_compare"]["description"]
 
 
 class TestE2EWorkflow:
@@ -253,8 +253,8 @@ class TestE2EWorkflow:
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_index", {"path": "/workspace"}, 3),
-                mcp_call_tool("astograph_analyze", {"thorough": True}, 4),
+                mcp_call_tool("astrograph_index", {"path": "/workspace"}, 3),
+                mcp_call_tool("astrograph_analyze", {"thorough": True}, 4),
             ],
             workspace_path=sample_workspace,
         )
@@ -288,8 +288,8 @@ def add_values(a, b):
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_index", {"path": "/workspace"}, 3),
-                mcp_call_tool("astograph_check", {"code": similar_code}, 4),
+                mcp_call_tool("astrograph_index", {"path": "/workspace"}, 3),
+                mcp_call_tool("astrograph_check", {"code": similar_code}, 4),
             ],
             workspace_path=sample_workspace,
         )
@@ -310,7 +310,7 @@ def add_values(a, b):
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_compare", {"code1": code1, "code2": code2}, 3),
+                mcp_call_tool("astrograph_compare", {"code1": code1, "code2": code2}, 3),
             ]
         )
 
@@ -328,7 +328,7 @@ def add_values(a, b):
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_compare", {"code1": code1, "code2": code2}, 3),
+                mcp_call_tool("astrograph_compare", {"code1": code1, "code2": code2}, 3),
             ]
         )
 
@@ -347,7 +347,7 @@ class TestErrorHandling:
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_index", {"path": "/nonexistent/path"}, 3),
+                mcp_call_tool("astrograph_index", {"path": "/nonexistent/path"}, 3),
             ]
         )
 
@@ -362,7 +362,7 @@ class TestErrorHandling:
         responses = send_mcp_messages(
             [
                 mcp_initialize(),
-                mcp_call_tool("astograph_analyze", {}, 3),
+                mcp_call_tool("astrograph_analyze", {}, 3),
             ]
         )
 

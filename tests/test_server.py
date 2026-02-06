@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from astograph.server import create_server, get_tools, set_tools
-from astograph.tools import (
+from astrograph.server import create_server, get_tools, set_tools
+from astrograph.tools import (
     PERSISTENCE_DIR,
     CodeStructureTools,
     ToolResult,
@@ -47,18 +47,18 @@ class TestResolveDockerPath:
 
     def test_persistence_path_normal(self):
         """Test persistence path for normal (non-Docker) environments."""
-        from astograph.tools import _get_persistence_path
+        from astrograph.tools import _get_persistence_path
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _get_persistence_path(tmpdir)
-            assert str(result).endswith(".metadata_astograph")
+            assert str(result).endswith(".metadata_astrograph")
             assert tmpdir in str(result)
 
     def test_persistence_path_docker_subdirectory(self):
         """Test persistence path redirects to workspace root in Docker."""
         from pathlib import Path
 
-        from astograph.tools import _get_persistence_path
+        from astrograph.tools import _get_persistence_path
 
         original_exists = Path.exists
 
@@ -72,13 +72,13 @@ class TestResolveDockerPath:
             # When indexing a subdirectory of /workspace in Docker,
             # persistence should go to /workspace root
             result = _get_persistence_path("/workspace/src")
-            assert str(result) == "/workspace/.metadata_astograph"
+            assert str(result) == "/workspace/.metadata_astrograph"
 
     def test_resolve_docker_path_with_mock_docker_env(self):
         """Test Docker path resolution with mocked Docker environment."""
         from pathlib import Path
 
-        from astograph.tools import _resolve_docker_path
+        from astrograph.tools import _resolve_docker_path
 
         original_exists = Path.exists
 
@@ -957,10 +957,10 @@ class TestAnalyzeStalenessWarning:
 
 
 class TestPersistence:
-    """Tests for index persistence to .metadata_astograph folder."""
+    """Tests for index persistence to .metadata_astrograph folder."""
 
     def test_index_creates_persistence_folder(self, tools):
-        """Test that indexing creates .metadata_astograph folder."""
+        """Test that indexing creates .metadata_astrograph folder."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
             with open(file1, "w") as f:
@@ -1142,7 +1142,7 @@ def transform_data(data):
 
 
 class TestWriteTool:
-    """Tests for the astograph_write tool."""
+    """Tests for the astrograph_write tool."""
 
     @pytest.fixture
     def indexed_tools(self):
@@ -1228,7 +1228,7 @@ def compute_total(x, y):
 
 
 class TestEditTool:
-    """Tests for the astograph_edit tool."""
+    """Tests for the astrograph_edit tool."""
 
     @pytest.fixture
     def indexed_tools_with_file(self):

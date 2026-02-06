@@ -30,8 +30,8 @@ wheels = [
 ]
 
 [[package]]
-name = "astograph"
-version = "0.2.4"
+name = "astrograph"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },

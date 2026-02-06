@@ -2,9 +2,9 @@
 
 import pytest
 
-from astograph.ast_to_graph import CodeUnit
-from astograph.index import CodeStructureIndex, DuplicateGroup
-from astograph.recommendations import (
+from astrograph.ast_to_graph import CodeUnit
+from astrograph.index import CodeStructureIndex, DuplicateGroup
+from astrograph.recommendations import (
     ActionType,
     Evidence,
     ImpactLevel,
@@ -475,7 +475,7 @@ class TestIntegrationWithTools:
 
     def test_analyze_tool(self):
         """Test the analyze tool integration."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
 
@@ -526,7 +526,7 @@ def process_b(items):
 
     def test_analyze_dispatch(self):
         """Test that analyze can be called via dispatch."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
         result = tools.call_tool("analyze", {})
@@ -536,7 +536,7 @@ def process_b(items):
 
     def test_similar_code_detection(self):
         """Test that similar (but not identical) code is detected."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
 
@@ -587,7 +587,7 @@ class TestPatternClassifier:
 
     def test_walrus_guard_classification(self):
         """Test that walrus operator guards are classified as idiomatic."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -629,7 +629,7 @@ class TestPatternClassifier:
 
     def test_early_return_classification(self):
         """Test that early returns are classified as idiomatic."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -666,7 +666,7 @@ class TestPatternClassifier:
 
     def test_test_file_classification(self):
         """Test that duplicates in test files are classified as test setup."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -704,7 +704,7 @@ class TestPatternClassifier:
 
     def test_dict_build_classification(self):
         """Test that conditional dict building is classified as idiomatic."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -741,7 +741,7 @@ class TestPatternClassifier:
 
     def test_refactorable_classification(self):
         """Test that true duplicates are classified as refactorable."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -783,7 +783,7 @@ class TestPatternClassifier:
 
     def test_is_test_file_detection(self):
         """Test test file path detection."""
-        from astograph.tools import PatternClassifier
+        from astrograph.tools import PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -796,7 +796,7 @@ class TestPatternClassifier:
 
     def test_delegate_method_classification(self):
         """Test that delegate methods are classified correctly."""
-        from astograph.tools import PatternClassifier
+        from astrograph.tools import PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -832,7 +832,7 @@ class TestPatternClassifier:
 
     def test_continue_pattern_classification(self):
         """Test that continue patterns in loops are classified as idiomatic."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -872,7 +872,7 @@ class TestPatternClassifier:
 
     def test_empty_group_classification(self):
         """Test classification of empty group."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -884,7 +884,7 @@ class TestPatternClassifier:
 
     def test_analyze_shows_idiomatic_patterns(self):
         """Test that analyze output shows idiomatic patterns with context."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
 
@@ -919,7 +919,7 @@ class TestPatternClassifier:
 
     def test_analyze_mixed_findings(self):
         """Test analyze with both refactorable and idiomatic duplicates."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
 
@@ -982,7 +982,7 @@ class TestPatternClassifier:
 
     def test_classifier_small_test_pattern(self):
         """Test that small patterns in test files are classified as test setup."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -1020,7 +1020,7 @@ y = 2"""
 
     def test_larger_test_file_duplicate(self):
         """Test that larger duplicates in test files are classified as test setup."""
-        from astograph.tools import DuplicateCategory, PatternClassifier
+        from astrograph.tools import DuplicateCategory, PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -1061,7 +1061,7 @@ y = 2"""
 
     def test_analyze_with_keep_suggestion(self):
         """Test analyze output includes keep suggestions for different path depths."""
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools()
 
@@ -1103,7 +1103,7 @@ y = 2"""
 
     def test_classify_delegate_method_false(self):
         """Test that non-delegate methods are not classified as delegates."""
-        from astograph.tools import PatternClassifier
+        from astrograph.tools import PatternClassifier
 
         classifier = PatternClassifier()
 
@@ -1119,7 +1119,7 @@ y = 2"""
 
     def test_classify_delegate_method_single_entry(self):
         """Test that single entry groups are not classified as delegates."""
-        from astograph.tools import PatternClassifier
+        from astrograph.tools import PatternClassifier
 
         classifier = PatternClassifier()
 

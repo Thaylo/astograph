@@ -47,7 +47,7 @@ Different variable names, same structure. ASTograph compares **code graphs**, no
 ## Quick Start
 
 ```bash
-docker pull thaylo/astograph
+docker pull thaylo/astrograph
 ```
 
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
@@ -55,13 +55,13 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 ```json
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", "/path/to/your/project:/workspace:ro",
-        "-v", "/path/to/your/project/.metadata_astograph:/workspace/.metadata_astograph",
-        "thaylo/astograph"
+        "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
+        "thaylo/astrograph"
       ]
     }
   }
@@ -193,13 +193,13 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", "/path/to/your/project:/workspace:ro",
-        "-v", "/path/to/your/project/.metadata_astograph:/workspace/.metadata_astograph",
-        "thaylo/astograph"
+        "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
+        "thaylo/astrograph"
       ]
     }
   }
@@ -214,13 +214,13 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", "${workspaceFolder}:/workspace:ro",
-        "-v", "${workspaceFolder}/.metadata_astograph:/workspace/.metadata_astograph",
-        "thaylo/astograph"
+        "-v", "${workspaceFolder}/.metadata_astrograph:/workspace/.metadata_astrograph",
+        "thaylo/astrograph"
       ]
     }
   }
@@ -235,13 +235,13 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace:ro",
-        "-v", "./.metadata_astograph:/workspace/.metadata_astograph",
-        "thaylo/astograph"
+        "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
+        "thaylo/astrograph"
       ]
     }
   }
@@ -260,10 +260,10 @@ pip install -e .
 ```json
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "python",
-      "args": ["-m", "astograph.server"],
-      "cwd": "/path/to/astograph"
+      "args": ["-m", "astrograph.server"],
+      "cwd": "/path/to/astrograph"
     }
   }
 }

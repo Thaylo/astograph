@@ -195,7 +195,7 @@ def get_cloud_sync_warning(path: str | Path) -> str | None:
 ║                                                                              ║
 ║  RECOMMENDATIONS:                                                            ║
 ║  1. Move your project to a local (non-synced) folder                         ║
-║  2. Or add .metadata_astograph/ to {service}'s ignore list
+║  2. Or add .metadata_astrograph/ to {service}'s ignore list
 ║  3. Or disable event-driven mode: CodeStructureTools(event_driven=False)     ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝

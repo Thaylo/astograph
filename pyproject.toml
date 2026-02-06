@@ -1,6 +1,6 @@
 [project]
-name = "astograph"
-version = "0.2.5"
+name = "astrograph"
+version = "0.3.0"
 description = "Detect structural code duplication using AST graph isomorphism"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,32 +24,32 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Thaylo/astograph"
-Repository = "https://github.com/Thaylo/astograph"
-Issues = "https://github.com/Thaylo/astograph/issues"
+Homepage = "https://github.com/Thaylo/astrograph"
+Repository = "https://github.com/Thaylo/astrograph"
+Issues = "https://github.com/Thaylo/astrograph/issues"
 
 [project.scripts]
-astograph = "astograph.server:main"
-astograph-cli = "astograph.cli:main"
+astrograph = "astrograph.server:main"
+astrograph-cli = "astrograph.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/astograph"]
+packages = ["src/astrograph"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/astograph"]
+include = ["src/astrograph"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 # Default: verbose for humans. Use scripts/test.py for AI-friendly output.
-addopts = "-v --tb=short --no-header --cov=src/astograph --cov-report= --cov-fail-under=92"
+addopts = "-v --tb=short --no-header --cov=src/astrograph --cov-report= --cov-fail-under=92"
 
 [tool.coverage.run]
-source = ["src/astograph"]
+source = ["src/astrograph"]
 branch = true
 
 [tool.coverage.report]
@@ -71,7 +71,7 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 check_untyped_defs = true
 strict_optional = true
-files = ["src/astograph"]
+files = ["src/astrograph"]
 
 [[tool.mypy.overrides]]
 module = ["networkx.*", "mcp.*", "xxhash.*", "watchdog.*"]
@@ -101,11 +101,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["astograph"]
+known-first-party = ["astrograph"]
 
 [tool.vulture]
 min_confidence = 80
-paths = ["src/astograph"]
+paths = ["src/astrograph"]
 exclude = ["tests/"]
 # FileSystemEvent is used in type annotations
 ignore_names = ["FileSystemEvent"]

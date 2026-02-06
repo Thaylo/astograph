@@ -33,7 +33,7 @@ SKIP_DIRS = frozenset(
         ".venv",
         "node_modules",
         ".tox",
-        ".metadata_astograph",
+        ".metadata_astrograph",
         ".pytest_cache",
         ".mypy_cache",
         ".ruff_cache",

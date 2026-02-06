@@ -2,8 +2,8 @@
 
 import pytest
 
-from astograph.ast_to_graph import CodeUnit, code_unit_to_ast_graph
-from astograph.index import (
+from astrograph.ast_to_graph import CodeUnit, code_unit_to_ast_graph
+from astrograph.index import (
     CodeStructureIndex,
     IndexEntry,
 )
@@ -1021,7 +1021,7 @@ class TestFileMetadata:
     """Tests for FileMetadata dataclass."""
 
     def test_to_dict_and_from_dict(self):
-        from astograph.index import FileMetadata
+        from astrograph.index import FileMetadata
 
         metadata = FileMetadata(
             file_path="/test/file.py",
@@ -1045,7 +1045,7 @@ class TestSuppressionInfo:
     """Tests for SuppressionInfo dataclass."""
 
     def test_to_dict_and_from_dict(self):
-        from astograph.index import SuppressionInfo
+        from astrograph.index import SuppressionInfo
 
         info = SuppressionInfo(
             wl_hash="hash123",
@@ -1072,7 +1072,7 @@ class TestSuppressionInfo:
         assert restored.file_hashes == info.file_hashes
 
     def test_from_dict_with_missing_optional_fields(self):
-        from astograph.index import SuppressionInfo
+        from astrograph.index import SuppressionInfo
 
         data = {
             "wl_hash": "hash123",

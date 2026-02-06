@@ -3,8 +3,8 @@
 import networkx as nx
 import pytest
 
-from astograph.ast_to_graph import ast_to_graph
-from astograph.canonical_hash import (
+from astrograph.ast_to_graph import ast_to_graph
+from astrograph.canonical_hash import (
     compute_hierarchy_hash,
     fingerprints_compatible,
     structural_fingerprint,

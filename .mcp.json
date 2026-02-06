@@ -1,12 +1,12 @@
 {
   "mcpServers": {
-    "astograph": {
+    "astrograph": {
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace:ro",
-        "-v", "./.metadata_astograph:/workspace/.metadata_astograph",
-        "thaylo/astograph"
+        "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
+        "thaylo/astrograph"
       ]
     }
   }

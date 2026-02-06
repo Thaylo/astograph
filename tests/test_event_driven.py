@@ -6,9 +6,9 @@ import time
 
 import pytest
 
-from astograph.index import CodeStructureIndex
-from astograph.persistence import SQLitePersistence
-from astograph.tools import CodeStructureTools
+from astrograph.index import CodeStructureIndex
+from astrograph.persistence import SQLitePersistence
+from astrograph.tools import CodeStructureTools
 
 
 class TestSQLitePersistence:
@@ -124,7 +124,7 @@ def transform_data(data):
         # Add a suppression
         import re
 
-        from astograph.tools import CodeStructureTools
+        from astrograph.tools import CodeStructureTools
 
         tools = CodeStructureTools(index=sample_index)
         analyze_result = tools.analyze()
@@ -166,7 +166,7 @@ class TestEventDrivenIndex:
 
     def test_index_directory_with_persistence(self):
         """Test indexing a directory with SQLite persistence."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test file
@@ -187,7 +187,7 @@ class TestEventDrivenIndex:
 
     def test_load_from_persistence(self):
         """Test loading index from persistence."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
@@ -213,7 +213,7 @@ class TestEventDrivenIndex:
 
     def test_analysis_cache(self):
         """Test analysis caching."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create files with duplicates
@@ -252,7 +252,7 @@ def transform(data):
 
     def test_suppress_with_persistence(self):
         """Test suppression with automatic persistence."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             code = """
@@ -292,7 +292,7 @@ def transform(data):
 
     def test_get_stats(self):
         """Test comprehensive statistics."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
@@ -320,7 +320,7 @@ class TestFileWatcher:
 
     def test_watcher_creation(self):
         """Test creating a file watcher."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -352,7 +352,7 @@ class TestFileWatcher:
 
     def test_watcher_detects_file_creation(self):
         """Test that watcher detects new Python files."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -394,7 +394,7 @@ class TestFileWatcher:
 
     def test_debounced_callback(self):
         """Test that rapid events are debounced."""
-        from astograph.watcher import DebouncedCallback
+        from astrograph.watcher import DebouncedCallback
 
         calls = []
 
@@ -421,7 +421,7 @@ class TestFileWatcherPool:
 
     def test_watch_and_unwatch(self):
         """Test watching and unwatching directories."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcherPool
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcherPool
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -452,7 +452,7 @@ class TestFileWatcherPool:
 
     def test_context_manager(self):
         """Test using pool as context manager."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcherPool
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcherPool
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -473,7 +473,7 @@ class TestWatcherSkipPaths:
         """Test that __pycache__ directories are skipped."""
         from pathlib import Path
 
-        from astograph.watcher import _should_skip_path
+        from astrograph.watcher import _should_skip_path
 
         assert _should_skip_path(Path("/project/__pycache__/file.py"))
         assert _should_skip_path(Path("/project/.git/hooks/pre-commit"))
@@ -486,7 +486,7 @@ class TestAnalysisCacheDirectly:
 
     def test_cache_invalidation(self):
         """Test cache invalidation."""
-        from astograph.event_driven import AnalysisCache
+        from astrograph.event_driven import AnalysisCache
 
         cache = AnalysisCache()
         assert not cache.is_valid()
@@ -499,14 +499,14 @@ class TestAnalysisCacheDirectly:
 
     def test_cache_get_returns_none_when_invalid(self):
         """Test that get returns None when cache is invalid."""
-        from astograph.event_driven import AnalysisCache
+        from astrograph.event_driven import AnalysisCache
 
         cache = AnalysisCache()
         assert cache.get() is None
 
     def test_cache_computed_at(self):
         """Test computed_at timestamp."""
-        from astograph.event_driven import AnalysisCache
+        from astrograph.event_driven import AnalysisCache
 
         cache = AnalysisCache()
         assert cache.computed_at == 0
@@ -560,14 +560,14 @@ class TestEventDrivenIndexEdgeCases:
 
     def test_close_without_start(self):
         """Test closing without starting watchers."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
         edi.close()  # Should not raise
 
     def test_stop_watching_without_start(self):
         """Test stopping watcher that was never started."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
         edi.stop_watching()  # Should not raise
@@ -575,7 +575,7 @@ class TestEventDrivenIndexEdgeCases:
 
     def test_context_manager(self):
         """Test using EventDrivenIndex as context manager."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with EventDrivenIndex(persistence_path=None, watch_enabled=False) as edi:
             assert edi is not None
@@ -685,7 +685,7 @@ class TestWatcherFileEvents:
 
     def test_watcher_detects_modification(self):
         """Test that watcher detects file modifications."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -724,7 +724,7 @@ class TestWatcherFileEvents:
 
     def test_watcher_ignores_non_python(self):
         """Test that watcher ignores non-Python files."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -802,7 +802,7 @@ class TestEventDrivenFileEvents:
         """Test removing a file from the index."""
         from pathlib import Path
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Resolve to handle macOS /tmp -> /private/var symlink
@@ -826,7 +826,7 @@ class TestEventDrivenFileEvents:
 
     def test_reindex_nonexistent_file(self):
         """Test reindexing a file that doesn't exist."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
 
@@ -837,7 +837,7 @@ class TestEventDrivenFileEvents:
 
     def test_start_watching_non_directory(self):
         """Test starting watcher on a non-directory."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
@@ -852,8 +852,8 @@ class TestEventDrivenFileEvents:
 
     def test_start_watching_already_watching(self):
         """Test starting watcher when already watching."""
-        from astograph.event_driven import EventDrivenIndex
-        from astograph.watcher import HAS_WATCHDOG
+        from astrograph.event_driven import EventDrivenIndex
+        from astrograph.watcher import HAS_WATCHDOG
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -872,7 +872,7 @@ class TestWatcherEdgeCases:
 
     def test_watcher_context_manager(self):
         """Test using FileWatcher as context manager."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -887,7 +887,7 @@ class TestWatcherEdgeCases:
 
     def test_debounced_callback_cancel(self):
         """Test cancelling debounced callbacks."""
-        from astograph.watcher import DebouncedCallback
+        from astrograph.watcher import DebouncedCallback
 
         calls = []
 
@@ -906,7 +906,7 @@ class TestWatcherEdgeCases:
 
     def test_handler_on_moved(self):
         """Test handling file move events."""
-        from astograph.watcher import PythonFileHandler
+        from astrograph.watcher import PythonFileHandler
 
         events = {"deleted": [], "created": []}
 
@@ -988,8 +988,8 @@ class TestEventDrivenWithWatching:
         """Test that file watching detects and processes changes."""
         from pathlib import Path
 
-        from astograph.event_driven import EventDrivenIndex
-        from astograph.watcher import HAS_WATCHDOG
+        from astrograph.event_driven import EventDrivenIndex
+        from astrograph.watcher import HAS_WATCHDOG
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -1026,7 +1026,7 @@ class TestWatcherHandlerEvents:
 
     def test_handler_ignores_directory_events(self):
         """Test that directory events are ignored."""
-        from astograph.watcher import PythonFileHandler
+        from astrograph.watcher import PythonFileHandler
 
         events = []
 
@@ -1049,7 +1049,7 @@ class TestWatcherHandlerEvents:
 
     def test_handler_filters_non_python(self):
         """Test that non-Python files are filtered."""
-        from astograph.watcher import PythonFileHandler
+        from astrograph.watcher import PythonFileHandler
 
         events = []
 
@@ -1071,7 +1071,7 @@ class TestWatcherHandlerEvents:
 
     def test_handler_cancel_pending(self):
         """Test cancelling pending handler events."""
-        from astograph.watcher import PythonFileHandler
+        from astrograph.watcher import PythonFileHandler
 
         handler = PythonFileHandler(
             on_modified=lambda _: None,
@@ -1088,7 +1088,7 @@ class TestEventDrivenWatcherDisabled:
 
     def test_start_watching_when_disabled(self):
         """Test that start_watching does nothing when watch_enabled=False."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
@@ -1134,7 +1134,7 @@ class TestSQLitePathHelpers:
     def test_get_sqlite_path(self):
         """Test _get_sqlite_path function."""
 
-        from astograph.tools import PERSISTENCE_DIR, _get_sqlite_path
+        from astrograph.tools import PERSISTENCE_DIR, _get_sqlite_path
 
         path = _get_sqlite_path("/test/project")
         assert str(path).endswith("index.db")
@@ -1147,7 +1147,7 @@ class TestEventDrivenScheduleRecompute:
     def test_schedule_recompute_when_already_running(self):
         """Test scheduling recompute when one is already in progress."""
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
 
@@ -1168,7 +1168,7 @@ class TestWatcherNonDirectory:
 
     def test_watcher_rejects_file_path(self):
         """Test that FileWatcher rejects file paths."""
-        from astograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
 
         if not HAS_WATCHDOG:
             pytest.skip("watchdog not installed")
@@ -1196,7 +1196,7 @@ class TestEventDrivenFileHandlerCallback:
         """Test file changed callback."""
         from pathlib import Path
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -1221,7 +1221,7 @@ class TestEventDrivenFileHandlerCallback:
         """Test file created callback."""
         from pathlib import Path
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -1251,7 +1251,7 @@ class TestEventDrivenFileHandlerCallback:
         """Test file deleted callback."""
         from pathlib import Path
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
@@ -1278,7 +1278,7 @@ class TestCloudDetection:
 
     def test_is_cloud_synced_path_regular_path(self):
         """Test that regular paths are not detected as cloud-synced."""
-        from astograph.cloud_detect import is_cloud_synced_path
+        from astrograph.cloud_detect import is_cloud_synced_path
 
         with tempfile.TemporaryDirectory() as tmpdir:
             is_synced, service = is_cloud_synced_path(tmpdir)
@@ -1287,7 +1287,7 @@ class TestCloudDetection:
 
     def test_get_cloud_sync_warning_regular_path(self):
         """Test that regular paths don't generate warnings."""
-        from astograph.cloud_detect import get_cloud_sync_warning
+        from astrograph.cloud_detect import get_cloud_sync_warning
 
         with tempfile.TemporaryDirectory() as tmpdir:
             warning = get_cloud_sync_warning(tmpdir)
@@ -1295,7 +1295,7 @@ class TestCloudDetection:
 
     def test_check_and_warn_cloud_sync_regular_path(self):
         """Test check_and_warn for regular paths."""
-        from astograph.cloud_detect import check_and_warn_cloud_sync
+        from astrograph.cloud_detect import check_and_warn_cloud_sync
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = check_and_warn_cloud_sync(tmpdir)
@@ -1303,7 +1303,7 @@ class TestCloudDetection:
 
     def test_get_cloud_storage_paths(self):
         """Test getting cloud storage paths."""
-        from astograph.cloud_detect import get_cloud_storage_paths
+        from astrograph.cloud_detect import get_cloud_storage_paths
 
         # Should return a dict (may be empty if no cloud storage)
         paths = get_cloud_storage_paths()
@@ -1311,7 +1311,7 @@ class TestCloudDetection:
 
     def test_expand_pattern_no_wildcard(self):
         """Test expanding pattern without wildcards."""
-        from astograph.cloud_detect import _expand_pattern
+        from astrograph.cloud_detect import _expand_pattern
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _expand_pattern(tmpdir)
@@ -1319,7 +1319,7 @@ class TestCloudDetection:
 
     def test_expand_pattern_nonexistent(self):
         """Test expanding pattern for nonexistent path."""
-        from astograph.cloud_detect import _expand_pattern
+        from astrograph.cloud_detect import _expand_pattern
 
         result = _expand_pattern("/nonexistent/path/that/does/not/exist")
         assert result == []
@@ -1328,7 +1328,7 @@ class TestCloudDetection:
         """Test platform key detection."""
         import platform
 
-        from astograph.cloud_detect import _get_platform_key
+        from astrograph.cloud_detect import _get_platform_key
 
         key = _get_platform_key()
         system = platform.system().lower()
@@ -1342,7 +1342,7 @@ class TestCloudDetection:
 
     def test_cloud_patterns_structure(self):
         """Test that CLOUD_PATTERNS has expected structure."""
-        from astograph.cloud_detect import CLOUD_PATTERNS
+        from astrograph.cloud_detect import CLOUD_PATTERNS
 
         assert "darwin" in CLOUD_PATTERNS
         assert "linux" in CLOUD_PATTERNS
@@ -1359,7 +1359,7 @@ class TestCloudDetectionInEventDriven:
 
     def test_event_driven_index_with_regular_path(self):
         """Test that regular paths work without cloud warning."""
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
@@ -1400,7 +1400,7 @@ class TestCloudDetectionWindowsOneDrive:
         """Test Windows OneDrive detection when env vars not set."""
         import os
 
-        from astograph.cloud_detect import _get_windows_onedrive_paths
+        from astrograph.cloud_detect import _get_windows_onedrive_paths
 
         # Save current env
         saved = {}
@@ -1423,7 +1423,7 @@ class TestCloudDetectionMoreCoverage:
 
     def test_expand_pattern_with_wildcard(self):
         """Test expanding pattern with wildcards."""
-        from astograph.cloud_detect import _expand_pattern
+        from astrograph.cloud_detect import _expand_pattern
 
         # Test wildcard pattern on a directory that exists
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1439,7 +1439,7 @@ class TestCloudDetectionMoreCoverage:
 
     def test_expand_pattern_wildcard_nonexistent_parent(self):
         """Test expanding wildcard pattern with nonexistent parent."""
-        from astograph.cloud_detect import _expand_pattern
+        from astrograph.cloud_detect import _expand_pattern
 
         result = _expand_pattern("/nonexistent/parent/dir/*.py")
         assert result == []
@@ -1448,7 +1448,7 @@ class TestCloudDetectionMoreCoverage:
         """Test check_and_warn_cloud_sync with a logger."""
         import logging
 
-        from astograph.cloud_detect import check_and_warn_cloud_sync
+        from astrograph.cloud_detect import check_and_warn_cloud_sync
 
         logger = logging.getLogger("test_cloud")
 
@@ -1459,7 +1459,7 @@ class TestCloudDetectionMoreCoverage:
 
     def test_check_and_warn_cloud_sync_print_fallback(self):
         """Test check_and_warn_cloud_sync prints to stderr when no logger."""
-        from astograph.cloud_detect import check_and_warn_cloud_sync
+        from astrograph.cloud_detect import check_and_warn_cloud_sync
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = check_and_warn_cloud_sync(tmpdir)
@@ -1467,7 +1467,7 @@ class TestCloudDetectionMoreCoverage:
 
     def test_is_cloud_synced_path_subpath_check(self):
         """Test the subpath checking in is_cloud_synced_path."""
-        from astograph.cloud_detect import is_cloud_synced_path
+        from astrograph.cloud_detect import is_cloud_synced_path
 
         # Test with a path that is clearly not cloud synced
         is_synced, service = is_cloud_synced_path("/usr/local/bin")
@@ -1475,7 +1475,7 @@ class TestCloudDetectionMoreCoverage:
 
     def test_get_cloud_sync_warning_format(self):
         """Test the warning format function returns string or None."""
-        from astograph.cloud_detect import get_cloud_sync_warning
+        from astrograph.cloud_detect import get_cloud_sync_warning
 
         result = get_cloud_sync_warning("/tmp/test")
         # Either None or a string
@@ -1489,10 +1489,10 @@ class TestCloudDetectionMocking:
         """Test that cloud warning contains expected sections."""
         from unittest.mock import patch
 
-        from astograph.cloud_detect import get_cloud_sync_warning
+        from astrograph.cloud_detect import get_cloud_sync_warning
 
         # Mock a path being cloud synced
-        with patch("astograph.cloud_detect.is_cloud_synced_path") as mock:
+        with patch("astrograph.cloud_detect.is_cloud_synced_path") as mock:
             mock.return_value = (True, "OneDrive")
             warning = get_cloud_sync_warning("/fake/path")
 
@@ -1507,11 +1507,11 @@ class TestCloudDetectionMocking:
         import logging
         from unittest.mock import patch
 
-        from astograph.cloud_detect import check_and_warn_cloud_sync
+        from astrograph.cloud_detect import check_and_warn_cloud_sync
 
         logger = logging.getLogger("test_cloud_warn")
 
-        with patch("astograph.cloud_detect.get_cloud_sync_warning") as mock:
+        with patch("astrograph.cloud_detect.get_cloud_sync_warning") as mock:
             mock.return_value = "Fake warning message"
             result = check_and_warn_cloud_sync("/fake/path", logger=logger)
             assert result is True
@@ -1522,9 +1522,9 @@ class TestCloudDetectionMocking:
         import sys
         from unittest.mock import patch
 
-        from astograph.cloud_detect import check_and_warn_cloud_sync
+        from astrograph.cloud_detect import check_and_warn_cloud_sync
 
-        with patch("astograph.cloud_detect.get_cloud_sync_warning") as mock:
+        with patch("astrograph.cloud_detect.get_cloud_sync_warning") as mock:
             mock.return_value = "Fake warning"
             # Capture stderr
             old_stderr = sys.stderr
@@ -1545,14 +1545,14 @@ class TestEventDrivenCloudWarning:
         """Test that cloud check is called during index_directory."""
         from unittest.mock import patch
 
-        from astograph.event_driven import EventDrivenIndex
+        from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
             with open(file1, "w") as f:
                 f.write("def foo(): pass")
 
-            with patch("astograph.event_driven.is_cloud_synced_path") as mock:
+            with patch("astrograph.event_driven.is_cloud_synced_path") as mock:
                 mock.return_value = (False, None)
 
                 edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
@@ -1575,7 +1575,7 @@ class TestToolsCloudWarning:
                 f.write("def foo(): pass")
 
             # Patch at the source module where it's imported from
-            with patch("astograph.cloud_detect.get_cloud_sync_warning") as mock:
+            with patch("astrograph.cloud_detect.get_cloud_sync_warning") as mock:
                 mock.return_value = "CLOUD-SYNCED FOLDER WARNING"
 
                 tools = CodeStructureTools(event_driven=True)
@@ -1590,7 +1590,7 @@ class TestCloudDetectionPlatformSpecific:
 
     def test_get_windows_onedrive_paths_with_env_set(self):
         """Test Windows OneDrive detection with env vars set."""
-        from astograph.cloud_detect import _get_windows_onedrive_paths
+        from astrograph.cloud_detect import _get_windows_onedrive_paths
 
         # Windows OneDrive uses mixed-case env var name "OneDrive"
         onedrive_var = "OneDrive"
@@ -1619,10 +1619,10 @@ class TestCloudDetectionPlatformSpecific:
             # Need to re-import to use the new mock
             import importlib
 
-            import astograph.cloud_detect
+            import astrograph.cloud_detect
 
-            importlib.reload(astograph.cloud_detect)
-            key = astograph.cloud_detect._get_platform_key()
+            importlib.reload(astrograph.cloud_detect)
+            key = astrograph.cloud_detect._get_platform_key()
             assert key == "win32"
 
     def test_get_platform_key_mocked_unknown(self):
@@ -1633,16 +1633,16 @@ class TestCloudDetectionPlatformSpecific:
             mock.return_value = "FreeBSD"  # Unknown platform
             import importlib
 
-            import astograph.cloud_detect
+            import astrograph.cloud_detect
 
-            importlib.reload(astograph.cloud_detect)
-            key = astograph.cloud_detect._get_platform_key()
+            importlib.reload(astrograph.cloud_detect)
+            key = astrograph.cloud_detect._get_platform_key()
             # Should default to linux
             assert key == "linux"
 
     def test_get_cloud_storage_paths_returns_dict(self):
         """Test get_cloud_storage_paths returns a dict."""
-        from astograph.cloud_detect import get_cloud_storage_paths
+        from astrograph.cloud_detect import get_cloud_storage_paths
 
         paths = get_cloud_storage_paths()
         assert isinstance(paths, dict)
@@ -1651,13 +1651,13 @@ class TestCloudDetectionPlatformSpecific:
         """Test that is_cloud_synced_path catches ValueError for relative_to."""
         from unittest.mock import patch
 
-        from astograph.cloud_detect import is_cloud_synced_path
+        from astrograph.cloud_detect import is_cloud_synced_path
 
         # Mock cloud paths to return a specific path
         with (
             tempfile.TemporaryDirectory() as cloud_dir,
             tempfile.TemporaryDirectory() as check_dir,
-            patch("astograph.cloud_detect.get_cloud_storage_paths") as mock,
+            patch("astrograph.cloud_detect.get_cloud_storage_paths") as mock,
         ):
             mock.return_value = {"OneDrive": [cloud_dir]}
 

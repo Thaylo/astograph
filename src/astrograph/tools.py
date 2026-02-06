@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 
 # Persistence directory name for cached index
-PERSISTENCE_DIR = ".metadata_astograph"
+PERSISTENCE_DIR = ".metadata_astrograph"
 
 
 def _resolve_docker_path(path: str) -> str:
@@ -85,7 +85,7 @@ def _get_persistence_path(indexed_path: str) -> Path:
 
     persistence_path = base / PERSISTENCE_DIR
 
-    # In Docker, /workspace might be read-only but /workspace/.metadata_astograph
+    # In Docker, /workspace might be read-only but /workspace/.metadata_astrograph
     # has a tmpfs mount. If we're indexing a subdirectory, use the root.
     workspace = Path("/workspace")
     if workspace.exists() and Path("/.dockerenv").exists() and str(base).startswith("/workspace/"):
@@ -459,7 +459,7 @@ class CodeStructureTools:
         Automatically extracts functions, classes, methods, and code blocks
         (for, while, if, try, with) for comprehensive duplicate detection.
 
-        Index and suppressions are persisted to `.metadata_astograph/` in the
+        Index and suppressions are persisted to `.metadata_astrograph/` in the
         indexed directory. Add to `.gitignore` if desired.
 
         In event-driven mode, also starts file watching for automatic updates.

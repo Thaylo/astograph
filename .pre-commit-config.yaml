@@ -37,7 +37,7 @@ repos:
         entry: vulture
         language: system
         types: [python]
-        args: [src/astograph, --min-confidence, "80"]
+        args: [src/astrograph, --min-confidence, "80"]
         pass_filenames: false
 
 # Run tests:

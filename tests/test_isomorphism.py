@@ -2,16 +2,16 @@
 
 import pytest
 
-from astograph.ast_to_graph import (
+from astrograph.ast_to_graph import (
     ast_to_graph,
     extract_code_units,
 )
-from astograph.canonical_hash import (
+from astrograph.canonical_hash import (
     fingerprints_compatible,
     structural_fingerprint,
     weisfeiler_leman_hash,
 )
-from astograph.index import CodeStructureIndex
+from astrograph.index import CodeStructureIndex
 
 
 class TestASTToGraph:
@@ -94,7 +94,7 @@ class TestCodeStructureIndex:
         index = CodeStructureIndex()
 
         # Create test code units
-        from astograph.ast_to_graph import CodeUnit
+        from astrograph.ast_to_graph import CodeUnit
 
         code1 = """
 def calculate(a, b):
@@ -148,7 +148,7 @@ def different(a, b):
     def test_find_similar(self):
         index = CodeStructureIndex()
 
-        from astograph.ast_to_graph import CodeUnit
+        from astrograph.ast_to_graph import CodeUnit
 
         existing_code = """
 def process(items):

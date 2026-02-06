@@ -44,3 +44,4 @@ htmlcov/
 # Index files
 *.index.json
 .metadata_astograph/
+.metadata_astrograph/

@@ -3,16 +3,14 @@ MCP server for code structure analysis.
 
 Auto-indexes the codebase at startup and maintains the index via file watching.
 
-Provides 9 tools (all prefixed with astrograph_):
+Provides 7 tools (all prefixed with astrograph_):
 - astrograph_analyze: Find duplicates and similar patterns
-- astrograph_check: Check if code exists before creating
-- astrograph_compare: Compare two code snippets
+- astrograph_write: Write Python file with duplicate detection (blocks if duplicate exists)
+- astrograph_edit: Edit Python file with duplicate detection (blocks if duplicate exists)
 - astrograph_suppress: Suppress a duplicate group by hash
 - astrograph_unsuppress: Remove suppression from a hash
 - astrograph_list_suppressions: List all suppressed hashes
 - astrograph_suppress_idiomatic: Suppress all idiomatic patterns at once
-- astrograph_write: Write Python file with duplicate detection (blocks if duplicate exists)
-- astrograph_edit: Edit Python file with duplicate detection (blocks if duplicate exists)
 """
 
 import asyncio
@@ -77,46 +75,6 @@ def create_server() -> Server:
                             "default": True,
                         },
                     },
-                },
-            ),
-            Tool(
-                name="astrograph_check",
-                description=(
-                    "Check if Python code similar to a snippet already exists in the indexed codebase. "
-                    "Use this BEFORE creating new Python code to avoid duplication. "
-                    "Only works with Python syntax."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "code": {
-                            "type": "string",
-                            "description": "Python code snippet to check for existing similar code",
-                        },
-                    },
-                    "required": ["code"],
-                },
-            ),
-            Tool(
-                name="astrograph_compare",
-                description=(
-                    "Compare two Python code snippets for structural equivalence. "
-                    "Returns whether they are identical, similar, or different. "
-                    "Only works with Python syntax."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "code1": {
-                            "type": "string",
-                            "description": "First Python code snippet",
-                        },
-                        "code2": {
-                            "type": "string",
-                            "description": "Second Python code snippet",
-                        },
-                    },
-                    "required": ["code1", "code2"],
                 },
             ),
             Tool(
@@ -229,14 +187,12 @@ def create_server() -> Server:
     # Map external tool names to internal names
     TOOL_NAME_MAP = {
         "astrograph_analyze": "analyze",
-        "astrograph_check": "check",
-        "astrograph_compare": "compare",
+        "astrograph_write": "write",
+        "astrograph_edit": "edit",
         "astrograph_suppress": "suppress",
         "astrograph_unsuppress": "unsuppress",
         "astrograph_list_suppressions": "list_suppressions",
         "astrograph_suppress_idiomatic": "suppress_idiomatic",
-        "astrograph_write": "write",
-        "astrograph_edit": "edit",
     }
 
     @server.call_tool()

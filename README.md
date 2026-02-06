@@ -84,12 +84,11 @@ Large codebases accumulate duplicate code because:
 
 | Tool | What It Does |
 |------|--------------|
-| `astograph_analyze` | Lists all duplicates found |
-| `astograph_write` | Writes files, blocks if duplicate exists |
-| `astograph_edit` | Edits files, blocks if new code is a duplicate |
-| `astograph_check` | Check if code exists before writing |
+| `astrograph_analyze` | Lists all duplicates found |
+| `astrograph_write` | Writes files, blocks if duplicate exists |
+| `astrograph_edit` | Edits files, blocks if new code is a duplicate |
 
-[See all 10 tools →](#tool-reference)
+[See all 7 tools →](#tool-reference)
 
 ## Works With
 
@@ -106,7 +105,7 @@ Large codebases accumulate duplicate code because:
 <details>
 <summary><strong>Click to expand full tool documentation</strong></summary>
 
-### astograph_analyze
+### astrograph_analyze
 
 Find duplicates in the indexed codebase.
 
@@ -114,26 +113,7 @@ Find duplicates in the indexed codebase.
 |-----------|------|----------|---------|-------------|
 | `thorough` | boolean | No | `true` | Show all duplicates including small ones |
 
-### astograph_check
-
-Check if similar code exists **before** creating new code.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `code` | string | Yes | - | Python code to check |
-
-Returns: `STOP` (duplicate), `CAUTION` (similar), or `NOTE` (partial match)
-
-### astograph_compare
-
-Compare two code snippets for structural equivalence.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `code1` | string | Yes | - | First Python code snippet |
-| `code2` | string | Yes | - | Second Python code snippet |
-
-### astograph_write
+### astrograph_write
 
 Write Python code to a file with automatic duplicate detection.
 
@@ -144,7 +124,7 @@ Write Python code to a file with automatic duplicate detection.
 
 Returns: `BLOCKED` if duplicate exists, `WARNING + Success` if similar, or `Success`
 
-### astograph_edit
+### astrograph_edit
 
 Edit a Python file with automatic duplicate detection.
 
@@ -154,7 +134,7 @@ Edit a Python file with automatic duplicate detection.
 | `old_string` | string | Yes | - | The exact text to replace |
 | `new_string` | string | Yes | - | The replacement Python code |
 
-### astograph_suppress
+### astrograph_suppress
 
 Suppress a duplicate group by its WL hash (shown in analyze output).
 
@@ -162,21 +142,17 @@ Suppress a duplicate group by its WL hash (shown in analyze output).
 |-----------|------|----------|---------|-------------|
 | `wl_hash` | string | Yes | - | WL hash from analyze output |
 
-### astograph_unsuppress
+### astrograph_unsuppress
 
 Remove suppression from a hash.
 
-### astograph_suppress_idiomatic
-
-Suppress all idiomatic patterns (guard clauses, test setup, etc.) in one call.
-
-### astograph_list_suppressions
+### astrograph_list_suppressions
 
 List all currently suppressed hashes.
 
-### astograph_check_staleness
+### astrograph_suppress_idiomatic
 
-Check if the index needs to be refreshed.
+Suppress all idiomatic patterns (guard clauses, test setup, etc.) in one call.
 
 </details>
 

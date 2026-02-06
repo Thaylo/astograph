@@ -207,11 +207,9 @@ class TestMCPProtocol:
         tools = tools_response["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        # Verify all 9 tools are present (event-driven mode: no index or check_staleness)
+        # Verify all 7 tools are present (event-driven mode)
         expected_tools = {
             "astrograph_analyze",
-            "astrograph_check",
-            "astrograph_compare",
             "astrograph_write",
             "astrograph_edit",
             "astrograph_suppress",
@@ -236,11 +234,11 @@ class TestMCPProtocol:
         # Check analyze tool mentions Python
         assert "Python" in tools["astrograph_analyze"]["description"]
 
-        # Check check tool mentions Python
-        assert "Python" in tools["astrograph_check"]["description"]
+        # Check write tool mentions Python
+        assert "Python" in tools["astrograph_write"]["description"]
 
-        # Check compare tool mentions Python
-        assert "Python" in tools["astrograph_compare"]["description"]
+        # Check edit tool mentions Python
+        assert "Python" in tools["astrograph_edit"]["description"]
 
 
 class TestE2EWorkflow:
@@ -263,67 +261,6 @@ class TestE2EWorkflow:
         analyze_text = analyze_response["result"]["content"][0]["text"]
         # Should find duplicates in our sample code or report clean
         assert "duplicate" in analyze_text.lower() or "CLEAN" in analyze_text
-
-    def test_check_similar_code(self, sample_workspace):
-        """Test checking for similar code before creation."""
-        # Code that's similar to what's in our sample workspace
-        similar_code = """
-def add_values(a, b):
-    result = a + b
-    return result
-"""
-
-        responses = send_mcp_messages(
-            [
-                mcp_initialize(),
-                mcp_call_tool("astrograph_check", {"code": similar_code}, 3),
-            ],
-            workspace_path=sample_workspace,
-        )
-
-        # Find check response
-        check_response = next((r for r in responses if r.get("id") == 3), None)
-        assert check_response is not None
-
-        check_text = check_response["result"]["content"][0]["text"]
-        # Should find similar code exists
-        assert any(word in check_text for word in ["STOP", "CAUTION", "similar", "exists"])
-
-    def test_compare_two_snippets(self):
-        """Test comparing two code snippets."""
-        code1 = "def add(a, b):\n    return a + b"
-        code2 = "def sum(x, y):\n    return x + y"
-
-        responses = send_mcp_messages(
-            [
-                mcp_initialize(),
-                mcp_call_tool("astrograph_compare", {"code1": code1, "code2": code2}, 3),
-            ]
-        )
-
-        compare_response = next((r for r in responses if r.get("id") == 3), None)
-        assert compare_response is not None
-
-        compare_text = compare_response["result"]["content"][0]["text"]
-        assert "EQUIVALENT" in compare_text
-
-    def test_compare_different_snippets(self):
-        """Test comparing structurally different code snippets."""
-        code1 = "def add(a, b):\n    return a + b"
-        code2 = "def greet(name):\n    print(f'Hello {name}')\n    return name"
-
-        responses = send_mcp_messages(
-            [
-                mcp_initialize(),
-                mcp_call_tool("astrograph_compare", {"code1": code1, "code2": code2}, 3),
-            ]
-        )
-
-        compare_response = next((r for r in responses if r.get("id") == 3), None)
-        assert compare_response is not None
-
-        compare_text = compare_response["result"]["content"][0]["text"]
-        assert "DIFFERENT" in compare_text
 
 
 class TestErrorHandling:

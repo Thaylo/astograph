@@ -615,8 +615,8 @@ class CodeStructureTools:
         """Remove a hash from the suppressed set."""
         return self._toggle_suppression(wl_hash, suppress=False)
 
-    def suppress_batch(self, wl_hashes: list[str]) -> ToolResult:
-        """Suppress multiple duplicate groups by WL hash list."""
+    def _batch_toggle_suppression(self, wl_hashes: list[str], suppress: bool) -> ToolResult:
+        """Batch suppress or unsuppress hashes."""
         if error := self._require_index():
             return error
         prefix = self._check_invalidated_suppressions()
@@ -625,35 +625,26 @@ class CodeStructureTools:
             if self._event_driven_mode and self._event_driven_index
             else self.index
         )
-        suppressed, not_found = active_index.suppress_batch(wl_hashes)
+        action = "suppress" if suppress else "unsuppress"
+        method = getattr(active_index, f"{action}_batch")
+        changed, not_found = method(wl_hashes)
         parts = []
-        if suppressed:
-            parts.append(f"Suppressed {len(suppressed)} hashes.")
+        if changed:
+            label = "Suppressed" if suppress else "Unsuppressed"
+            parts.append(f"{label} {len(changed)} hashes.")
         if not_found:
             parts.append(f"{len(not_found)} not found: {', '.join(not_found)}")
         if not parts:
             parts.append("No hashes provided.")
         return ToolResult(prefix + " ".join(parts))
 
+    def suppress_batch(self, wl_hashes: list[str]) -> ToolResult:
+        """Suppress multiple duplicate groups by WL hash list."""
+        return self._batch_toggle_suppression(wl_hashes, suppress=True)
+
     def unsuppress_batch(self, wl_hashes: list[str]) -> ToolResult:
         """Unsuppress multiple hashes."""
-        if error := self._require_index():
-            return error
-        prefix = self._check_invalidated_suppressions()
-        active_index: CodeStructureIndex | EventDrivenIndex = (
-            self._event_driven_index
-            if self._event_driven_mode and self._event_driven_index
-            else self.index
-        )
-        unsuppressed, not_found = active_index.unsuppress_batch(wl_hashes)
-        parts = []
-        if unsuppressed:
-            parts.append(f"Unsuppressed {len(unsuppressed)} hashes.")
-        if not_found:
-            parts.append(f"{len(not_found)} not found: {', '.join(not_found)}")
-        if not parts:
-            parts.append("No hashes provided.")
-        return ToolResult(prefix + " ".join(parts))
+        return self._batch_toggle_suppression(wl_hashes, suppress=False)
 
     def list_suppressions(self) -> ToolResult:
         """List all suppressed hashes."""

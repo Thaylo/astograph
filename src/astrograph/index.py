@@ -1147,8 +1147,6 @@ class CodeStructureIndex:
             data = json.load(f)
 
         with self._lock:
-            # version = data.get("version", 1)  # Reserved for future format migrations
-
             self.entries.clear()
             with self.entries.bulk_load():
                 for eid, e in data["entries"].items():

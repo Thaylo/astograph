@@ -10,6 +10,8 @@ import logging
 import sqlite3
 import time
 from collections.abc import Iterator
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,7 +21,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Running package version (falls back to __version__ if not installed)
+try:
+    _ASTROGRAPH_VERSION = pkg_version("astrograph")
+except PackageNotFoundError:
+    from . import __version__
+
+    _ASTROGRAPH_VERSION = __version__
 
 
 class SQLitePersistence:
@@ -57,7 +67,7 @@ class SQLitePersistence:
         return self._conn
 
     def _ensure_schema(self) -> None:
-        """Create tables if they don't exist."""
+        """Create tables if they don't exist, resetting on version mismatch."""
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS schema_version (
@@ -98,11 +108,37 @@ class SQLitePersistence:
         """
         )
 
-        # Check/set schema version
+        # Check schema version
         cursor = self.conn.execute("SELECT version FROM schema_version LIMIT 1")
         row = cursor.fetchone()
         if row is None:
+            # Fresh database — set current versions
             self.conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        elif row[0] != SCHEMA_VERSION:
+            self._reset_database(f"schema version {row[0]} != {SCHEMA_VERSION}")
+            return
+
+        # Check astrograph package version
+        cursor = self.conn.execute(
+            "SELECT value FROM index_metadata WHERE key = 'astrograph_version'"
+        )
+        row = cursor.fetchone()
+        if row is not None and row[0] != _ASTROGRAPH_VERSION:
+            self._reset_database(f"astrograph version {row[0]} != {_ASTROGRAPH_VERSION}")
+
+    def _reset_database(self, reason: str) -> None:
+        """Drop all data and recreate schema (incompatible version)."""
+        logger.info("Resetting persistence: %s", reason)
+        self.conn.executescript(
+            """
+            DROP TABLE IF EXISTS entries;
+            DROP TABLE IF EXISTS file_metadata;
+            DROP TABLE IF EXISTS suppressed_hashes;
+            DROP TABLE IF EXISTS index_metadata;
+            DROP TABLE IF EXISTS schema_version;
+        """
+        )
+        self._ensure_schema()
 
     def close(self) -> None:
         """Close the database connection."""
@@ -264,6 +300,7 @@ class SQLitePersistence:
                     ("block_entry_count", str(index._block_entry_count)),
                     ("function_entry_count", str(index._function_entry_count)),
                     ("saved_at", str(time.time())),
+                    ("astrograph_version", _ASTROGRAPH_VERSION),
                 ],
             )
 

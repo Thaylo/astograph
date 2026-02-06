@@ -1860,3 +1860,128 @@ class TestLRUPersistenceIntegration:
         edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
         assert edi.index.entries._persistence is None
         edi.close()
+
+
+class TestSchemaMigration:
+    """Tests for automatic schema migration on startup."""
+
+    def test_schema_version_mismatch_resets_database(self):
+        """Save index with old schema version, verify load returns False (empty DB after reset)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+
+            index = CodeStructureIndex()
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass\ndef bar(): pass")
+
+            index.index_file(file1)
+
+            persistence = SQLitePersistence(db_path)
+            persistence.save_full_index(index)
+
+            # Verify data was saved
+            new_index = CodeStructureIndex()
+            assert persistence.load_full_index(new_index) is True
+            persistence.close()
+
+            # Tamper with schema version to simulate old schema
+            import sqlite3
+
+            conn = sqlite3.connect(db_path)
+            conn.execute("UPDATE schema_version SET version = 1")
+            conn.commit()
+            conn.close()
+
+            # Re-open persistence — should detect mismatch and reset
+            persistence2 = SQLitePersistence(db_path)
+            empty_index = CodeStructureIndex()
+            loaded = persistence2.load_full_index(empty_index)
+
+            assert loaded is False  # DB was reset, no data
+            persistence2.close()
+
+    def test_schema_version_match_loads_normally(self):
+        """Save index with current version, verify load succeeds."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+
+            index = CodeStructureIndex()
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass\ndef bar(): pass")
+
+            index.index_file(file1)
+
+            persistence = SQLitePersistence(db_path)
+            persistence.save_full_index(index)
+            persistence.close()
+
+            # Re-open — should load normally
+            persistence2 = SQLitePersistence(db_path)
+            new_index = CodeStructureIndex()
+            loaded = persistence2.load_full_index(new_index)
+
+            assert loaded is True
+            assert len(new_index.entries) == len(index.entries)
+            persistence2.close()
+
+    def test_astrograph_version_stored_on_save(self):
+        """Save index, check index_metadata has astrograph_version."""
+        from astrograph.persistence import _ASTROGRAPH_VERSION
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+
+            index = CodeStructureIndex()
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass")
+
+            index.index_file(file1)
+
+            persistence = SQLitePersistence(db_path)
+            persistence.save_full_index(index)
+
+            # Check index_metadata directly
+            cursor = persistence.conn.execute(
+                "SELECT value FROM index_metadata WHERE key = 'astrograph_version'"
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == _ASTROGRAPH_VERSION
+            persistence.close()
+
+    def test_astrograph_version_mismatch_resets_database(self):
+        """Save index, tamper with stored version, verify reset on reopen."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+
+            index = CodeStructureIndex()
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass\ndef bar(): pass")
+
+            index.index_file(file1)
+
+            persistence = SQLitePersistence(db_path)
+            persistence.save_full_index(index)
+            persistence.close()
+
+            # Tamper with astrograph_version to simulate old version
+            import sqlite3
+
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "UPDATE index_metadata SET value = '0.0.1' WHERE key = 'astrograph_version'"
+            )
+            conn.commit()
+            conn.close()
+
+            # Re-open persistence — should detect mismatch and reset
+            persistence2 = SQLitePersistence(db_path)
+            empty_index = CodeStructureIndex()
+            loaded = persistence2.load_full_index(empty_index)
+
+            assert loaded is False  # DB was reset, no data
+            persistence2.close()

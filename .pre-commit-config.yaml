@@ -1,0 +1,45 @@
+# AI-friendly pre-commit config: minimal output, fast feedback
+# On failure: shows only the error location and message
+# On success: single line per hook
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.2.2
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix, --output-format=concise]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - networkx-stubs
+          - types-xxhash
+        args: [--config-file=pyproject.toml, --no-error-summary]
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: vulture
+        name: vulture
+        entry: vulture
+        language: system
+        types: [python]
+        args: [src/astograph, --min-confidence, "80"]
+        pass_filenames: false
+
+# Run tests:
+#   Human-friendly: pytest
+#   AI-friendly:    python scripts/test.py

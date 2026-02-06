@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "astograph": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", ".:/workspace:ro",
+        "--tmpfs", "/workspace/.metadata_astograph",
+        "thaylo/astograph"
+      ]
+    }
+  }
+}

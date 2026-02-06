@@ -31,13 +31,14 @@ def calculate_sum(a, b):
 
 Your AI agent tries to write this:
 ```python
+# src/utils.py
 def add_numbers(x, y):
     return x + y
 ```
 
 ASTograph intercepts and blocks:
 ```
-BLOCKED: Identical code exists at src/math.py:calculate_sum (lines 5-8).
+BLOCKED: Cannot write - identical code exists at src/math.py:calculate_sum (lines 1-2).
 Reuse the existing implementation instead.
 ```
 

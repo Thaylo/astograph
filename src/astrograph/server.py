@@ -16,7 +16,6 @@ Provides 8 tools (all prefixed with astrograph_):
 
 import asyncio
 import atexit
-import os
 import signal
 import sys
 
@@ -26,11 +25,8 @@ from mcp.types import TextContent, Tool
 
 from .tools import CodeStructureTools
 
-# Check for event-driven mode via environment variable
-_event_driven = os.environ.get("ASTROGRAPH_EVENT_DRIVEN", "").lower() in ("1", "true", "yes")
-
 # Global tools instance
-_tools = CodeStructureTools(event_driven=_event_driven)
+_tools = CodeStructureTools()
 
 
 def get_tools() -> CodeStructureTools:

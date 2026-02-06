@@ -7,9 +7,7 @@ Simplified API with 4 core tools:
 - check: Check if code exists before creating
 - compare: Compare two code snippets
 
-Supports two modes:
-- Standard mode: JSON persistence, manual re-indexing
-- Event-driven mode: SQLite persistence, file watching, pre-computed analysis
+Uses SQLite persistence with file watching for automatic index updates.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import networkx as nx
 
@@ -28,11 +26,9 @@ from .canonical_hash import (
     structural_fingerprint,
     weisfeiler_leman_hash,
 )
+from .event_driven import EventDrivenIndex
 from .index import CodeStructureIndex, DuplicateGroup, IndexEntry
 from .languages.registry import LanguageRegistry
-
-if TYPE_CHECKING:
-    from .event_driven import EventDrivenIndex
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +109,7 @@ class CodeStructureTools:
 
     4 core tools with sensible defaults - no configuration needed.
 
-    Supports two modes:
-    - Standard mode (default): JSON persistence, manual re-indexing
-    - Event-driven mode: SQLite persistence, file watching, cached analysis
+    Uses SQLite persistence with file watching for automatic index updates.
     """
 
     # Internal defaults - not exposed to MCP users
@@ -125,30 +119,24 @@ class CodeStructureTools:
     def __init__(
         self,
         index: CodeStructureIndex | None = None,
-        event_driven: bool = False,
     ) -> None:
         """
         Initialize the tools.
 
         Args:
-            index: Optional pre-existing index (ignored if event_driven=True)
-            event_driven: Enable event-driven mode with file watching and
-                         SQLite persistence. Provides instant analyze() responses.
+            index: Optional pre-existing index (for testing only).
         """
-        self._event_driven_mode = event_driven
         self._event_driven_index: EventDrivenIndex | None = None
 
-        if event_driven:
-            # Lazy import to avoid circular dependency
-            from .event_driven import EventDrivenIndex
-
+        if index is not None:
+            # Testing path: use provided index directly without event-driven wrapper
+            self.index = index
+        else:
             self._event_driven_index = EventDrivenIndex(
                 persistence_path=None,  # Set during index_codebase
                 watch_enabled=True,
             )
             self.index = self._event_driven_index.index
-        else:
-            self.index = index or CodeStructureIndex()
 
         self._last_indexed_path: str | None = None
 
@@ -157,9 +145,9 @@ class CodeStructureTools:
         self._bg_index_done = threading.Event()
         self._bg_index_done.set()  # Initially "done" (no background work)
 
-        # Auto-index /workspace at startup in event-driven mode (Docker)
+        # Auto-index /workspace at startup (Docker)
         # Run in background so the MCP handshake completes immediately.
-        if event_driven and os.path.isdir("/workspace"):
+        if os.path.isdir("/workspace"):
             self._bg_index_done.clear()
             self._bg_index_thread = threading.Thread(
                 target=self._background_index,
@@ -211,11 +199,7 @@ class CodeStructureTools:
 
     def _has_significant_duplicates(self) -> bool:
         """Check if there are duplicates above the trivial threshold."""
-        min_nodes = 5
-        return bool(
-            self.index.find_all_duplicates(min_node_count=min_nodes)
-            or self.index.find_block_duplicates(min_node_count=min_nodes)
-        )
+        return self.index.has_duplicates(min_node_count=5)
 
     def _format_index_stats(self, include_blocks: bool, incremental_info: str = "") -> str:
         """Format index statistics for output."""
@@ -237,7 +221,6 @@ class CodeStructureTools:
         self,
         path: str,
         recursive: bool = True,
-        incremental: bool = True,
     ) -> ToolResult:
         """
         Index a Python codebase for structural analysis.
@@ -248,12 +231,11 @@ class CodeStructureTools:
         Index and suppressions are persisted to `.metadata_astrograph/` in the
         indexed directory. Add to `.gitignore` if desired.
 
-        In event-driven mode, also starts file watching for automatic updates.
+        Also starts file watching for automatic updates on changes.
 
         Args:
             path: Path to file or directory to index
             recursive: Search directories recursively (default True)
-            incremental: Only re-index changed files (default True, 98% faster)
         """
         # Resolve path (handles Docker volume mounts)
         path = _resolve_docker_path(path)
@@ -261,23 +243,15 @@ class CodeStructureTools:
         if not os.path.exists(path):
             return ToolResult(f"Error: Path does not exist: {path}")
 
-        # Store path for auto-reindex in analyze()
-        self._last_indexed_path = path
+        # Store resolved path for auto-reindex and relative path computation
+        self._last_indexed_path = str(Path(path).resolve())
 
         # Always include blocks - only 22% overhead for much better detection
-        include_blocks = True
-
-        # Event-driven mode: use SQLite persistence and file watching
-        if self._event_driven_mode and self._event_driven_index is not None:
-            return self._index_codebase_event_driven(path, recursive)
-
-        # Standard mode: JSON persistence
-        return self._index_codebase_standard(path, recursive, incremental, include_blocks)
+        return self._index_codebase_event_driven(path, recursive)
 
     def _index_codebase_event_driven(self, path: str, recursive: bool) -> ToolResult:
         """Index codebase using event-driven mode with SQLite and file watching."""
         from .cloud_detect import get_cloud_sync_warning
-        from .event_driven import EventDrivenIndex
 
         # Check for cloud-synced folders and prepare warning
         cloud_warning = get_cloud_sync_warning(path)
@@ -297,8 +271,12 @@ class CodeStructureTools:
         )
         self.index = self._event_driven_index.index
 
-        # Index the directory (loads from cache if available)
-        self._event_driven_index.index_directory(path, recursive=recursive)
+        # Index the path (loads from cache if available)
+        if os.path.isfile(path):
+            # Single file: index directly, watch its parent directory
+            self.index.index_file(path)
+        else:
+            self._event_driven_index.index_directory(path, recursive=recursive)
 
         stats = self.index.get_stats()
 
@@ -318,51 +296,6 @@ class CodeStructureTools:
             output = cloud_warning + "\n\n" + output
 
         return ToolResult(output)
-
-    def _index_codebase_standard(
-        self, path: str, recursive: bool, incremental: bool, include_blocks: bool
-    ) -> ToolResult:
-        """Index codebase using standard JSON persistence mode."""
-        # Set up persistence path
-        persistence_path = _get_persistence_path(path)
-        index_file = persistence_path / "index.json"
-
-        # Try to load cached index if it exists and we don't have one yet
-        loaded_from_cache = False
-        if index_file.exists() and not self.index.entries:
-            try:
-                self.index.load(str(index_file))
-                self.index.set_persistence_path(persistence_path)
-                loaded_from_cache = True
-            except (OSError, ValueError, KeyError):
-                # Corrupted cache, ignore and re-index
-                pass
-
-        # Create persistence directory if needed
-        persistence_path.mkdir(exist_ok=True)
-        self.index.set_persistence_path(persistence_path)
-
-        if incremental and os.path.isdir(path) and self.index.file_metadata:
-            # Incremental indexing for directories (when index already exists)
-            entries, added, updated, unchanged = self.index.index_directory_incremental(
-                path, recursive=recursive, include_blocks=include_blocks
-            )
-            incremental_info = f" ({added} added, {updated} updated, {unchanged} unchanged)"
-            if loaded_from_cache:
-                incremental_info += " [loaded from cache]"
-            self.index._auto_save()
-            return ToolResult(self._format_index_stats(include_blocks, incremental_info))
-
-        # Full re-index (clear and rebuild)
-        self.index.clear()
-
-        if os.path.isfile(path):
-            self.index.index_file(path, include_blocks=include_blocks)
-        else:
-            self.index.index_directory(path, recursive=recursive, include_blocks=include_blocks)
-
-        self.index._auto_save()
-        return ToolResult(self._format_index_stats(include_blocks))
 
     def _verify_group(self, group: DuplicateGroup) -> bool:
         """Verify a duplicate group via graph isomorphism."""
@@ -436,7 +369,7 @@ class CodeStructureTools:
         if report.is_stale:
             if auto_reindex and self._last_indexed_path:
                 # Auto-reindex for accurate results
-                self.index_codebase(self._last_indexed_path, incremental=True)
+                self.index_codebase(self._last_indexed_path)
                 staleness_warning = "[Auto-reindexed]\n"
             else:
                 counts = [
@@ -713,11 +646,9 @@ class CodeStructureTools:
                 for e in entries
             ]
 
-        # Toggle suppression state using appropriate index
+        # Toggle suppression state using event-driven index if available (persists to SQLite)
         active_index: CodeStructureIndex | EventDrivenIndex = (
-            self._event_driven_index
-            if self._event_driven_mode and self._event_driven_index
-            else self.index
+            self._event_driven_index if self._event_driven_index else self.index
         )
         success = active_index.suppress(wl_hash) if suppress else active_index.unsuppress(wl_hash)
 
@@ -751,9 +682,7 @@ class CodeStructureTools:
             return error
         prefix = self._check_invalidated_suppressions()
         active_index: CodeStructureIndex | EventDrivenIndex = (
-            self._event_driven_index
-            if self._event_driven_mode and self._event_driven_index
-            else self.index
+            self._event_driven_index if self._event_driven_index else self.index
         )
         action = "suppress" if suppress else "unsuppress"
         method = getattr(active_index, f"{action}_batch")
@@ -969,7 +898,8 @@ class CodeStructureTools:
         warning = ""
         if exact:
             entry = exact[0].entry
-            if entry.code_unit.file_path != file_path:
+            # Compare resolved paths to handle symlinks (e.g., /var -> /private/var on macOS)
+            if str(Path(entry.code_unit.file_path).resolve()) != str(Path(file_path).resolve()):
                 # Cross-file duplicate: block
                 return ToolResult(
                     f"BLOCKED: Cannot edit - identical code exists at "
@@ -1026,7 +956,6 @@ class CodeStructureTools:
             return self.index_codebase(
                 path=arguments["path"],
                 recursive=arguments.get("recursive", True),
-                incremental=arguments.get("incremental", True),
             )
         elif name == "analyze":
             return self.analyze(
@@ -1079,7 +1008,7 @@ class CodeStructureTools:
         self.close()
 
     def get_event_driven_stats(self) -> dict | None:
-        """Get event-driven mode statistics (returns None if not in event-driven mode)."""
+        """Get event-driven mode statistics (returns None if no event-driven index)."""
         if self._event_driven_index is not None:
             stats = self._event_driven_index.get_stats()
             # Add process memory usage (stdlib, no new deps)

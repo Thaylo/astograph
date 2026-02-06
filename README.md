@@ -271,10 +271,11 @@ pip install -e .
 Source → Parser → Graph → WL Hash → Index Lookup → Match
 ```
 
-The Docker image runs in **event-driven mode** by default:
+The server runs in **event-driven mode**:
 - SQLite persistence with WAL mode (survives restarts)
 - File watching (auto re-index on changes)
-- Analysis cache (instant responses)
+- Pre-computed analysis cache (instant responses)
+- Incremental delta persistence (only changed files are persisted)
 
 </details>
 

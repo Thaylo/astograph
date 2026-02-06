@@ -18,8 +18,5 @@ COPY src/ src/
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
-# Enable event-driven mode for in-memory caching and file watching
-ENV ASTROGRAPH_EVENT_DRIVEN=1
-
 # MCP server runs on stdio
 ENTRYPOINT ["python", "-m", "astrograph.server"]

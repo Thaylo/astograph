@@ -129,6 +129,14 @@ class LanguagePlugin(Protocol):
         """Convert a CodeUnit to an ASTGraph with metadata."""
         ...
 
+    def normalize_graph_for_pattern(self, graph: nx.DiGraph) -> nx.DiGraph:
+        """Normalize node labels for pattern matching (operators → base types).
+
+        Returns a copy of the graph with operator-specific labels replaced by
+        base type labels. Default: returns the graph unchanged.
+        """
+        ...
+
 
 class BaseLanguagePlugin:
     """
@@ -175,3 +183,7 @@ class BaseLanguagePlugin:
     def code_unit_to_ast_graph(self, unit: CodeUnit) -> ASTGraph:
         """Convert a CodeUnit to an ASTGraph with metadata."""
         return build_ast_graph(self.source_to_graph(unit.code), unit)
+
+    def normalize_graph_for_pattern(self, graph: nx.DiGraph) -> nx.DiGraph:
+        """Normalize node labels for pattern matching. Default: return unchanged."""
+        return graph

@@ -400,6 +400,149 @@ def transform(data):
             edi.close()
 
 
+class TestDeltaPersistence:
+    """Tests for incremental delta persistence (save_file_entries instead of save_full_index)."""
+
+    def test_incremental_uses_delta_persistence(self):
+        """After initial full index, incremental updates use per-file saves."""
+        from unittest.mock import patch
+
+        from astrograph.event_driven import EventDrivenIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass")
+
+            file2 = os.path.join(tmpdir, "file2.py")
+            with open(file2, "w") as f:
+                f.write("def bar(): pass")
+
+            db_path = os.path.join(tmpdir, "index.db")
+
+            # First: full index (uses save_full_index)
+            edi1 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            edi1.index_directory(tmpdir)
+            edi1.close()
+
+            # Modify one file
+            import time
+
+            time.sleep(0.01)
+            with open(file1, "w") as f:
+                f.write("def foo_modified(): pass")
+
+            # Second: incremental update should use delta persistence
+            edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            with (
+                patch.object(
+                    edi2._persistence, "save_full_index", wraps=edi2._persistence.save_full_index
+                ) as mock_full,
+                patch.object(
+                    edi2._persistence,
+                    "save_file_entries",
+                    wraps=edi2._persistence.save_file_entries,
+                ) as mock_file,
+                patch.object(
+                    edi2._persistence,
+                    "save_index_metadata",
+                    wraps=edi2._persistence.save_index_metadata,
+                ) as mock_meta,
+            ):
+                edi2.index_directory(tmpdir)
+
+                # save_full_index should NOT have been called for incremental
+                assert mock_full.call_count == 0
+                # save_file_entries should have been called for the changed file
+                assert mock_file.call_count == 1
+                # save_index_metadata should have been called once
+                assert mock_meta.call_count == 1
+
+            edi2.close()
+
+    def test_incremental_persists_removed_files(self):
+        """Incremental update deletes persistence entries for removed files."""
+        from unittest.mock import patch
+
+        from astrograph.event_driven import EventDrivenIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass")
+
+            file2 = os.path.join(tmpdir, "file2.py")
+            with open(file2, "w") as f:
+                f.write("def bar(): pass")
+
+            db_path = os.path.join(tmpdir, "index.db")
+
+            # Full index
+            edi1 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            edi1.index_directory(tmpdir)
+            edi1.close()
+
+            # Delete file2
+            os.unlink(file2)
+
+            # Incremental update
+            edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            with patch.object(
+                edi2._persistence,
+                "delete_file_entries",
+                wraps=edi2._persistence.delete_file_entries,
+            ) as mock_delete:
+                edi2.index_directory(tmpdir)
+                # delete_file_entries should have been called for the removed file
+                assert mock_delete.call_count == 1
+
+            edi2.close()
+
+    def test_incremental_no_changes_skips_persistence(self):
+        """If nothing changed, no persistence calls are made."""
+        from unittest.mock import patch
+
+        from astrograph.event_driven import EventDrivenIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write("def foo(): pass")
+
+            db_path = os.path.join(tmpdir, "index.db")
+
+            # Full index
+            edi1 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            edi1.index_directory(tmpdir)
+            edi1.close()
+
+            # Incremental with no changes
+            edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            with (
+                patch.object(
+                    edi2._persistence, "save_full_index", wraps=edi2._persistence.save_full_index
+                ) as mock_full,
+                patch.object(
+                    edi2._persistence,
+                    "save_file_entries",
+                    wraps=edi2._persistence.save_file_entries,
+                ) as mock_file,
+                patch.object(
+                    edi2._persistence,
+                    "save_index_metadata",
+                    wraps=edi2._persistence.save_index_metadata,
+                ) as mock_meta,
+            ):
+                edi2.index_directory(tmpdir)
+
+                # Nothing should have been called
+                assert mock_full.call_count == 0
+                assert mock_file.call_count == 0
+                assert mock_meta.call_count == 0
+
+            edi2.close()
+
+
 class TestFileWatcher:
     """Tests for file watcher."""
 
@@ -797,20 +940,19 @@ class TestEventDrivenTools:
     """Tests for event-driven mode in CodeStructureTools."""
 
     def test_event_driven_mode_initialization(self):
-        """Test initializing tools in event-driven mode."""
-        tools = CodeStructureTools(event_driven=True)
-        assert tools._event_driven_mode is True
+        """Test initializing tools (always event-driven)."""
+        tools = CodeStructureTools()
         assert tools._event_driven_index is not None
         tools.close()
 
     def test_event_driven_index_codebase(self):
-        """Test indexing in event-driven mode."""
+        """Test indexing codebase."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
             with open(file1, "w") as f:
                 f.write("def foo(): pass")
 
-            tools = CodeStructureTools(event_driven=True)
+            tools = CodeStructureTools()
             result = tools.index_codebase(tmpdir)
 
             assert "Indexed" in result.text
@@ -838,7 +980,7 @@ def transform(data):
                 f.write(code)
 
             # First tools instance - suppress
-            tools1 = CodeStructureTools(event_driven=True)
+            tools1 = CodeStructureTools()
             tools1.index_codebase(tmpdir)
 
             analyze_result = tools1.analyze()
@@ -849,7 +991,7 @@ def transform(data):
                 tools1.close()
 
                 # Second tools instance - verify suppression persisted
-                tools2 = CodeStructureTools(event_driven=True)
+                tools2 = CodeStructureTools()
                 tools2.index_codebase(tmpdir)
 
                 assert wl_hash in tools2.index.suppressed_hashes
@@ -862,7 +1004,7 @@ def transform(data):
             with open(file1, "w") as f:
                 f.write("def foo(): pass")
 
-            tools = CodeStructureTools(event_driven=True)
+            tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
 
             stats = tools.get_event_driven_stats()
@@ -873,12 +1015,6 @@ def transform(data):
 
             tools.close()
 
-    def test_standard_mode_no_event_driven_stats(self):
-        """Test that standard mode returns None for event-driven stats."""
-        tools = CodeStructureTools(event_driven=False)
-        stats = tools.get_event_driven_stats()
-        assert stats is None
-
     def test_tools_context_manager(self):
         """Test using CodeStructureTools as context manager."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -886,7 +1022,7 @@ def transform(data):
             with open(file1, "w") as f:
                 f.write("def foo(): pass")
 
-            with CodeStructureTools(event_driven=True) as tools:
+            with CodeStructureTools() as tools:
                 tools.index_codebase(tmpdir)
                 assert len(tools.index.entries) >= 1
 
@@ -1545,7 +1681,7 @@ class TestCloudDetectionInTools:
             with open(file1, "w") as f:
                 f.write("def foo(): pass")
 
-            tools = CodeStructureTools(event_driven=True)
+            tools = CodeStructureTools()
             result = tools.index_codebase(tmpdir)
 
             # Should not contain cloud warning
@@ -1740,7 +1876,7 @@ class TestToolsCloudWarning:
             with patch("astrograph.cloud_detect.get_cloud_sync_warning") as mock:
                 mock.return_value = "CLOUD-SYNCED FOLDER WARNING"
 
-                tools = CodeStructureTools(event_driven=True)
+                tools = CodeStructureTools()
                 result = tools.index_codebase(tmpdir)
 
                 assert "CLOUD-SYNCED" in result.text

@@ -353,14 +353,32 @@ class EventDrivenIndex:
             and self.load_from_persistence()
         ):
             # Check for staleness and do incremental update
-            entries, added, updated, unchanged = self.index.index_directory_incremental(
+            (
+                entries,
+                added,
+                updated,
+                unchanged,
+                changed_files,
+                removed_files,
+            ) = self.index.index_directory_incremental(
                 str(path), recursive=recursive, include_blocks=include_blocks
             )
 
-            # Persist any changes
-            if added > 0 or updated > 0:
-                self._persistence.save_full_index(self.index)
-                self._persistence.vacuum()
+            # Persist only changed/removed files (delta), not the full index
+            if changed_files or removed_files:
+                for fp in changed_files:
+                    if fp in self.index.file_metadata:
+                        file_entries = [
+                            self.index.entries[eid]
+                            for eid in self.index.file_entries.get(fp, [])
+                            if eid in self.index.entries
+                        ]
+                        self._persistence.save_file_entries(
+                            fp, file_entries, self.index.file_metadata[fp]
+                        )
+                for fp in removed_files:
+                    self._persistence.delete_file_entries(fp)
+                self._persistence.save_index_metadata(self.index)
 
             logger.info(
                 f"Incremental update: {added} added, {updated} updated, {unchanged} unchanged"
@@ -383,7 +401,6 @@ class EventDrivenIndex:
         # Persist
         if self._persistence is not None:
             self._persistence.save_full_index(self.index)
-            self._persistence.vacuum()
 
         # Start watching if enabled
         if self._watch_enabled:
@@ -425,14 +442,52 @@ class EventDrivenIndex:
         return success
 
     def unsuppress_batch(self, wl_hashes: list[str]) -> tuple[list[str], list[str]]:
-        """Unsuppress multiple hashes and persist. Returns (unsuppressed, not_found)."""
-        return batch_hash_operation(wl_hashes, self.unsuppress)
+        """Unsuppress multiple hashes and persist. Returns (unsuppressed, not_found).
+
+        Optimized: does all in-memory work first, then batch-persists, then
+        invalidates cache and recomputes once.
+        """
+        # In-memory work (no individual persistence)
+        changed, not_found = batch_hash_operation(wl_hashes, self.index.unsuppress)
+
+        # Batch-persist all changes
+        if changed and self._persistence is not None:
+            for wl_hash in changed:
+                self._persistence.delete_suppression(wl_hash)
+
+        # Invalidate cache and recompute once
+        if changed:
+            self._cache.invalidate()
+            self._schedule_analysis_recompute()
+
+        return changed, not_found
 
     def suppress_batch(
         self, wl_hashes: list[str], reason: str | None = None
     ) -> tuple[list[str], list[str]]:
-        """Suppress multiple hashes and persist. Returns (suppressed, not_found)."""
-        return batch_hash_operation(wl_hashes, lambda h: self.suppress(h, reason))
+        """Suppress multiple hashes and persist. Returns (suppressed, not_found).
+
+        Optimized: does all in-memory work first, then batch-persists, then
+        invalidates cache and recomputes once.
+        """
+        # In-memory work (no individual persistence)
+        changed, not_found = batch_hash_operation(
+            wl_hashes, lambda h: self.index.suppress(h, reason)
+        )
+
+        # Batch-persist all changes
+        if changed and self._persistence is not None:
+            for wl_hash in changed:
+                info = self.index.get_suppression_info(wl_hash)
+                if info:
+                    self._persistence.save_suppression(info)
+
+        # Invalidate cache and recompute once
+        if changed:
+            self._cache.invalidate()
+            self._schedule_analysis_recompute()
+
+        return changed, not_found
 
     # =========================================================================
     # Stats

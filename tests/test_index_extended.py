@@ -259,7 +259,7 @@ class TestCodeStructureIndexExtended:
         results = index.find_similar("x = 1", min_node_count=10)
         assert results == []
 
-    def test_save_and_load(self, tmp_path):
+    def test_add_and_query(self):
         index = CodeStructureIndex()
 
         unit = CodeUnit(
@@ -272,14 +272,7 @@ class TestCodeStructureIndexExtended:
         )
         index.add_code_unit(unit)
 
-        save_path = str(tmp_path / "index.json")
-        index.save(save_path)
-
-        # Load into new index
-        new_index = CodeStructureIndex()
-        new_index.load(save_path)
-
-        assert new_index.get_stats()["total_entries"] == 1
+        assert index.get_stats()["total_entries"] == 1
 
     @pytest.mark.parametrize(
         "code1,code2,expected",
@@ -542,6 +535,124 @@ class TestPatternDuplicates:
         assert "unique_patterns" in stats
 
 
+class TestPatternHashRelabeling:
+    """Test that graph relabeling produces identical hashes to re-parsing."""
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            # Binary operators
+            "def f(a, b): return a + b",
+            "def f(a, b): return a - b",
+            "def f(a, b): return a * b",
+            "def f(a, b): return a / b",
+            "def f(a, b): return a // b",
+            "def f(a, b): return a % b",
+            "def f(a, b): return a ** b",
+            "def f(a, b): return a << b",
+            "def f(a, b): return a >> b",
+            "def f(a, b): return a | b",
+            "def f(a, b): return a ^ b",
+            "def f(a, b): return a & b",
+            "def f(a, b): return a @ b",
+            # Comparison operators
+            "def f(x): return x == 0",
+            "def f(x): return x != 0",
+            "def f(x): return x < 0",
+            "def f(x): return x <= 0",
+            "def f(x): return x > 0",
+            "def f(x): return x >= 0",
+            "def f(x): return x is None",
+            "def f(x): return x is not None",
+            "def f(x): return x in [1, 2]",
+            "def f(x): return x not in [1, 2]",
+            # Multi-comparator
+            "def f(x): return 0 < x < 10",
+            "def f(x): return 0 <= x != 10",
+            # Unary operators
+            "def f(x): return +x",
+            "def f(x): return -x",
+            "def f(x): return not x",
+            "def f(x): return ~x",
+            # Boolean operators
+            "def f(x, y): return x and y",
+            "def f(x, y): return x or y",
+            # Augmented assignment
+            "def f(x):\n    x += 1\n    return x",
+            "def f(x):\n    x *= 2\n    return x",
+            # Constants (should be unchanged)
+            "def f(): return 42",
+            "def f(): return 'hello'",
+            # Mixed operators
+            "def f(a, b): return (a + b) * (a - b)",
+            "def f(x, y): return x > 0 and y < 0",
+            # No operators
+            "def f(x): return x",
+            "def f(): pass",
+        ],
+        ids=lambda code: code.split(":")[0]
+        .strip()
+        .replace("def f", "")
+        .replace("(", "_")
+        .replace(")", "")[:40],
+    )
+    def test_relabel_hash_equals_reparse_hash(self, code):
+        """Verify relabeled hash matches reparsed hash for all operator types."""
+        from astrograph.canonical_hash import weisfeiler_leman_hash
+        from astrograph.languages.python_plugin import PythonPlugin
+
+        plugin = PythonPlugin()
+
+        # Method 1: Re-parse with normalize_ops=True (old approach)
+        reparsed_graph = plugin.source_to_graph(code, normalize_ops=True)
+        reparsed_hash = weisfeiler_leman_hash(reparsed_graph)
+
+        # Method 2: Parse once, then relabel (new approach)
+        normal_graph = plugin.source_to_graph(code, normalize_ops=False)
+        relabeled_graph = plugin.normalize_graph_for_pattern(normal_graph)
+        relabeled_hash = weisfeiler_leman_hash(relabeled_graph)
+
+        assert relabeled_hash == reparsed_hash, (
+            f"Hash mismatch for: {code}\n"
+            f"  reparsed:  {reparsed_hash}\n"
+            f"  relabeled: {relabeled_hash}"
+        )
+
+    def test_normalize_returns_copy(self):
+        """normalize_graph_for_pattern should return a copy, not modify the original."""
+        from astrograph.languages.python_plugin import PythonPlugin
+
+        plugin = PythonPlugin()
+        graph = plugin.source_to_graph("def f(a, b): return a + b")
+
+        original_labels = {n: d["label"] for n, d in graph.nodes(data=True)}
+        normalized = plugin.normalize_graph_for_pattern(graph)
+
+        # Original should be unchanged
+        for n, d in graph.nodes(data=True):
+            assert d["label"] == original_labels[n]
+
+        # Normalized should have different labels for operator nodes
+        has_change = any(
+            graph.nodes[n]["label"] != normalized.nodes[n]["label"] for n in graph.nodes()
+        )
+        assert has_change, "Expected at least one label to change for code with operators"
+
+    def test_non_operator_labels_preserved(self):
+        """Labels like 'Call', 'Name', 'Constant:int' should be unchanged."""
+        from astrograph.languages.python_plugin import PythonPlugin
+
+        plugin = PythonPlugin()
+        graph = plugin.source_to_graph("def f(): return len([1, 2, 3])")
+        normalized = plugin.normalize_graph_for_pattern(graph)
+
+        for n, d in normalized.nodes(data=True):
+            label = d["label"]
+            # These common non-operator labels should appear unchanged
+            if label in ("Call", "Name", "Constant:int", "List", "Return", "FunctionDef"):
+                assert graph.nodes[n]["label"] == label
+
+
 class TestBlockDuplicates:
     """Tests for block duplicate detection."""
 
@@ -664,8 +775,8 @@ def func():
         assert len(index.block_buckets) == 0
         assert len(index.block_type_index) == 0
 
-    def test_save_load_with_blocks(self, tmp_path):
-        """Save and load should preserve block entries."""
+    def test_index_with_blocks(self, tmp_path):
+        """Index should correctly track block entries."""
         index = CodeStructureIndex()
 
         source = """
@@ -678,15 +789,8 @@ def func():
 
         index.index_file(str(file), include_blocks=True)
 
-        save_path = str(tmp_path / "index.json")
-        index.save(save_path)
-
-        # Load into new index
-        new_index = CodeStructureIndex()
-        new_index.load(save_path)
-
-        assert new_index.get_stats()["block_entries"] == 1
-        assert len(new_index.block_buckets) == len(index.block_buckets)
+        assert index.get_stats()["block_entries"] == 1
+        assert len(index.block_buckets) >= 1
 
     def test_stats_include_block_info(self, tmp_path):
         """Stats should include block-related information."""
@@ -951,8 +1055,8 @@ def func2():
         # Suppressions should still be there
         assert wl_hash in index.get_suppressed()
 
-    def test_save_load_with_suppressions(self, tmp_path):
-        """Save and load should preserve suppressions."""
+    def test_suppress_filters_duplicates(self):
+        """Suppressed hashes should be excluded from duplicate results."""
         index = CodeStructureIndex()
 
         code = "def f(x): return x + 1"
@@ -970,14 +1074,8 @@ def func2():
         wl_hash = groups[0].wl_hash
         index.suppress(wl_hash)
 
-        save_path = str(tmp_path / "index.json")
-        index.save(save_path)
-
-        new_index = CodeStructureIndex()
-        new_index.load(save_path)
-
-        assert wl_hash in new_index.get_suppressed()
-        assert len(new_index.find_all_duplicates(min_node_count=3)) == 0
+        assert wl_hash in index.get_suppressed()
+        assert len(index.find_all_duplicates(min_node_count=3)) == 0
 
     def test_stats_include_suppressed_count(self):
         """Stats should include suppressed_hashes count."""
@@ -1229,11 +1327,20 @@ class TestIncrementalIndexing:
         file2.write_text("def g(): pass")
 
         # Initial index
-        entries, added, updated, unchanged = index.index_directory_incremental(str(tmp_path))
+        (
+            entries,
+            added,
+            updated,
+            unchanged,
+            changed_files,
+            removed_files,
+        ) = index.index_directory_incremental(str(tmp_path))
 
         assert added == 2
         assert updated == 0
         assert unchanged == 0
+        assert len(changed_files) == 2
+        assert not removed_files
 
     def test_index_directory_incremental_partial_change(self, tmp_path):
         import time
@@ -1253,11 +1360,20 @@ class TestIncrementalIndexing:
         time.sleep(0.01)
         file1.write_text("def f_modified(): pass")
 
-        entries, added, updated, unchanged = index.index_directory_incremental(str(tmp_path))
+        (
+            entries,
+            added,
+            updated,
+            unchanged,
+            changed_files,
+            removed_files,
+        ) = index.index_directory_incremental(str(tmp_path))
 
         assert added == 0
         assert updated == 1
         assert unchanged == 1
+        assert changed_files == {str(file1)}
+        assert not removed_files
 
     def test_index_directory_incremental_removes_deleted_files(self, tmp_path):
         import os
@@ -1276,11 +1392,20 @@ class TestIncrementalIndexing:
         # Delete file2
         os.unlink(str(file2))
 
-        entries, added, updated, unchanged = index.index_directory_incremental(str(tmp_path))
+        (
+            entries,
+            added,
+            updated,
+            unchanged,
+            changed_files,
+            removed_files,
+        ) = index.index_directory_incremental(str(tmp_path))
 
         assert added == 0
         assert updated == 0
         assert unchanged == 1
+        assert not changed_files
+        assert removed_files == {str(file2)}
         assert len(index.file_metadata) == 1
         assert str(file2) not in index.file_metadata
 
@@ -1569,108 +1694,3 @@ class TestEnhancedSuppressions:
         info = index.get_suppression_info(wl_hash)
         assert str(file1) not in info.source_files
         assert str(file2) in info.source_files
-
-
-class TestVersionMigration:
-    """Tests for index version migration."""
-
-    def test_save_includes_version(self, tmp_path):
-        import json
-
-        index = CodeStructureIndex()
-
-        unit = CodeUnit(
-            name="f",
-            code="def f(): pass",
-            file_path="f.py",
-            line_start=1,
-            line_end=1,
-            unit_type="function",
-        )
-        index.add_code_unit(unit)
-
-        save_path = str(tmp_path / "index.json")
-        index.save(save_path)
-
-        with open(save_path) as f:
-            data = json.load(f)
-
-        assert data["version"] == 3
-        assert "file_metadata" in data
-        assert "suppression_details" in data
-
-    def test_load_v1_index_loads_basic_data(self, tmp_path):
-        import json
-
-        # Create a v1-style index file (no version field, no suppression_details)
-        v1_data = {
-            "entries": {},
-            "hash_buckets": {},
-            "pattern_buckets": {},
-            "block_buckets": {},
-            "block_type_index": {},
-            "file_entries": {},
-            "suppressed_hashes": ["hash1", "hash2"],
-            "entry_counter": 0,
-        }
-
-        save_path = str(tmp_path / "v1_index.json")
-        with open(save_path, "w") as f:
-            json.dump(v1_data, f)
-
-        # Load into new index
-        index = CodeStructureIndex()
-        index.load(save_path)
-
-        # Suppressed hashes loaded, but no suppression_details (v1 didn't have them)
-        assert "hash1" in index.suppressed_hashes
-        assert "hash2" in index.suppressed_hashes
-        # No migration - details remain empty for old v1 data
-        assert len(index.suppression_details) == 0
-        assert len(index.file_metadata) == 0
-
-    def test_save_load_with_file_metadata(self, tmp_path):
-        index = CodeStructureIndex()
-
-        file = tmp_path / "test.py"
-        file.write_text("def f(): pass")
-
-        index.index_file(str(file))
-
-        save_path = str(tmp_path / "index.json")
-        index.save(save_path)
-
-        new_index = CodeStructureIndex()
-        new_index.load(save_path)
-
-        assert str(file) in new_index.file_metadata
-        assert new_index.file_metadata[str(file)].entry_count == 1
-
-    def test_save_load_with_suppression_details(self, tmp_path):
-        index = CodeStructureIndex()
-
-        code = "def f(x): return x + 1"
-        unit1 = CodeUnit(
-            name="f1", code=code, file_path="f1.py", line_start=1, line_end=1, unit_type="function"
-        )
-        unit2 = CodeUnit(
-            name="f2", code=code, file_path="f2.py", line_start=1, line_end=1, unit_type="function"
-        )
-
-        index.add_code_unit(unit1)
-        index.add_code_unit(unit2)
-
-        groups = index.find_all_duplicates(min_node_count=3)
-        if groups:
-            wl_hash = groups[0].wl_hash
-            index.suppress(wl_hash, reason="Test reason")
-
-            save_path = str(tmp_path / "index.json")
-            index.save(save_path)
-
-            new_index = CodeStructureIndex()
-            new_index.load(save_path)
-
-            info = new_index.get_suppression_info(wl_hash)
-            assert info is not None
-            assert info.reason == "Test reason"

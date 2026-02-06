@@ -5,7 +5,6 @@ Stores AST graphs with their hashes for efficient duplicate detection.
 """
 
 import hashlib
-import json
 import os
 import threading
 import time
@@ -323,28 +322,12 @@ class CodeStructureIndex:
         # Incremental counters for O(1) stats
         self._block_entry_count = 0
         self._function_entry_count = 0
-        # Persistence path for auto-save (None = no auto-save)
-        self._persistence_path: Path | None = None
         # Thread safety for concurrent access from file watcher and MCP tools
         self._lock = threading.RLock()
 
     def _generate_id(self) -> str:
         self._entry_counter += 1
         return f"entry_{self._entry_counter}"
-
-    def set_persistence_path(self, path: Path | None) -> None:
-        """Set the persistence path for auto-save. None disables auto-save."""
-        self._persistence_path = path
-
-    def get_persistence_path(self) -> Path | None:
-        """Get the current persistence path."""
-        return self._persistence_path
-
-    def _auto_save(self) -> None:
-        """Save to persistence path if configured."""
-        if self._persistence_path:
-            index_file = self._persistence_path / "index.json"
-            self.save(str(index_file))
 
     def _compute_file_hash(self, file_path: str) -> str | None:
         """Compute SHA256 hash of file content."""
@@ -393,13 +376,13 @@ class CodeStructureIndex:
             fp = structural_fingerprint(ast_graph.graph)
             hierarchy = list(compute_hierarchy_hash(ast_graph.graph))
 
-            # Compute pattern hash with normalized operators
+            # Compute pattern hash via O(n) graph relabeling (avoids re-parsing)
             language = ast_graph.code_unit.language
             plugin = LanguageRegistry.get().get_plugin(language)
             if plugin is not None:
-                pattern_graph = plugin.source_to_graph(ast_graph.code_unit.code, normalize_ops=True)
+                pattern_graph = plugin.normalize_graph_for_pattern(ast_graph.graph)
             else:
-                pattern_graph = ast_to_graph(ast_graph.code_unit.code, normalize_ops=True)
+                pattern_graph = ast_graph.graph
             pattern_hash = weisfeiler_leman_hash(pattern_graph)
 
             entry = IndexEntry(
@@ -550,7 +533,7 @@ class CodeStructureIndex:
         recursive: bool = True,
         include_blocks: bool = True,
         max_block_depth: int = 3,
-    ) -> tuple[list[IndexEntry], int, int, int]:
+    ) -> tuple[list[IndexEntry], int, int, int, set[str], set[str]]:
         """
         Incrementally index a directory, only processing changed files.
 
@@ -561,11 +544,12 @@ class CodeStructureIndex:
             max_block_depth: Maximum nesting depth for block extraction
 
         Returns:
-            Tuple of (all_entries, added_count, updated_count, unchanged_count)
+            Tuple of (all_entries, added_count, updated_count, unchanged_count,
+                       changed_files, removed_files)
         """
         path = Path(dir_path)
         if not path.exists():
-            return [], 0, 0, 0
+            return [], 0, 0, 0, set(), set()
 
         with self._lock:
             all_entries: list[IndexEntry] = []
@@ -573,6 +557,7 @@ class CodeStructureIndex:
             updated_count = 0
             unchanged_count = 0
             seen_files: set[str] = set()
+            changed_files: set[str] = set()
 
             for py_file in _walk_python_files(str(path), recursive):
                 file_str = py_file
@@ -589,6 +574,7 @@ class CodeStructureIndex:
                     else:
                         updated_count += 1
                     all_entries.extend(entries)
+                    changed_files.add(file_str)
                 else:
                     unchanged_count += 1
                     # Include existing entries in result
@@ -598,11 +584,20 @@ class CodeStructureIndex:
                                 all_entries.append(self.entries[entry_id])
 
             # Remove files that no longer exist
+            removed_files: set[str] = set()
             files_to_remove = [f for f in self.file_metadata if f not in seen_files]
             for file_path in files_to_remove:
                 self.remove_file(file_path)
+                removed_files.add(file_path)
 
-            return all_entries, added_count, updated_count, unchanged_count
+            return (
+                all_entries,
+                added_count,
+                updated_count,
+                unchanged_count,
+                changed_files,
+                removed_files,
+            )
 
     def remove_file(self, file_path: str) -> None:
         """Remove all entries for a file from the index. O(k) where k = entries in file."""
@@ -877,7 +872,6 @@ class CodeStructureIndex:
                 file_hashes=file_hashes,
             )
 
-            self._auto_save()
             return True
 
     def unsuppress(self, wl_hash: str) -> bool:
@@ -886,7 +880,6 @@ class CodeStructureIndex:
             if wl_hash in self.suppressed_hashes:
                 self.suppressed_hashes.remove(wl_hash)
                 self.suppression_details.pop(wl_hash, None)
-                self._auto_save()
                 return True
             return False
 
@@ -1084,6 +1077,29 @@ class CodeStructureIndex:
                 self.block_buckets, min_node_count, entry_filter
             )
 
+    def has_duplicates(self, min_node_count: int = 5) -> bool:
+        """Check if any duplicates exist above the trivial threshold.
+
+        Short-circuits on first match using hot metadata — ~100x faster than
+        building full DuplicateGroup objects.
+        """
+        with self._lock:
+            for buckets in (self.hash_buckets, self.block_buckets):
+                for wl_hash, entry_ids in buckets.items():
+                    if wl_hash in self.suppressed_hashes:
+                        continue
+                    if len(entry_ids) < 2:
+                        continue
+                    # Count entries that pass the node_count filter
+                    passing = 0
+                    for eid in entry_ids:
+                        node_count = self.entries.get_node_count(eid)
+                        if node_count is not None and node_count >= min_node_count:
+                            passing += 1
+                            if passing >= 2:
+                                return True
+            return False
+
     def verify_isomorphism(self, entry1: IndexEntry, entry2: IndexEntry) -> bool:
         """Verify that two entries are truly isomorphic using full graph isomorphism."""
         with self._lock:
@@ -1118,73 +1134,6 @@ class CodeStructureIndex:
                 "unique_block_hashes": len(self.block_buckets),
                 "indexed_files": len(self.file_entries),
                 "suppressed_hashes": len(self.suppressed_hashes),
-            }
-
-    def save(self, path: str) -> None:
-        """Save the index to a JSON file."""
-        data = {
-            "version": 3,  # Index format version for migration support
-            "entries": {eid: e.to_dict() for eid, e in self.entries.items()},
-            # Convert sets to lists for JSON serialization
-            "hash_buckets": {k: list(v) for k, v in self.hash_buckets.items()},
-            "pattern_buckets": {k: list(v) for k, v in self.pattern_buckets.items()},
-            "block_buckets": {k: list(v) for k, v in self.block_buckets.items()},
-            "block_type_index": {k: list(v) for k, v in self.block_type_index.items()},
-            "file_entries": self.file_entries,
-            "suppressed_hashes": list(self.suppressed_hashes),
-            "file_metadata": {fp: fm.to_dict() for fp, fm in self.file_metadata.items()},
-            "suppression_details": {h: si.to_dict() for h, si in self.suppression_details.items()},
-            "entry_counter": self._entry_counter,
-            "block_entry_count": self._block_entry_count,
-            "function_entry_count": self._function_entry_count,
-        }
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-
-    def load(self, path: str) -> None:
-        """Load the index from a JSON file."""
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-
-        with self._lock:
-            self.entries.clear()
-            with self.entries.bulk_load():
-                for eid, e in data["entries"].items():
-                    self.entries[eid] = IndexEntry.from_dict(e)
-
-            # Convert lists back to sets for O(1) operations
-            self.hash_buckets = {k: set(v) for k, v in data["hash_buckets"].items()}
-            self.pattern_buckets = {k: set(v) for k, v in data.get("pattern_buckets", {}).items()}
-            self.block_buckets = {k: set(v) for k, v in data.get("block_buckets", {}).items()}
-            self.block_type_index = {k: set(v) for k, v in data.get("block_type_index", {}).items()}
-            self.file_entries = data["file_entries"]
-            self.suppressed_hashes = set(data.get("suppressed_hashes", []))
-            self._entry_counter = data["entry_counter"]
-
-            # Load counters or rebuild them for backwards compatibility
-            if "block_entry_count" in data:
-                self._block_entry_count = data["block_entry_count"]
-                self._function_entry_count = data["function_entry_count"]
-            else:
-                # Rebuild counters from entries (backwards compatibility)
-                self._block_entry_count = sum(
-                    1 for e in self.entries.values() if e.code_unit.unit_type == "block"
-                )
-                self._function_entry_count = len(self.entries) - self._block_entry_count
-
-            # Rebuild fingerprint index from entries (skip empty graphs)
-            self.fingerprint_index = {}
-            for eid, entry in self.entries.items():
-                if "n_nodes" in entry.fingerprint:
-                    fp_key = (entry.fingerprint["n_nodes"], entry.fingerprint["n_edges"])
-                    self.fingerprint_index.setdefault(fp_key, set()).add(eid)
-
-            self.file_metadata = {
-                fp: FileMetadata.from_dict(fm) for fp, fm in data.get("file_metadata", {}).items()
-            }
-            self.suppression_details = {
-                h: SuppressionInfo.from_dict(si)
-                for h, si in data.get("suppression_details", {}).items()
             }
 
     def clear(self) -> None:

@@ -309,6 +309,27 @@ class SQLitePersistence:
             conn.execute("ROLLBACK")
             raise
 
+    def save_index_metadata(self, index: "CodeStructureIndex") -> None:
+        """Save only index metadata (counters, version). No entry data touched."""
+        conn = self.conn
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("DELETE FROM index_metadata")
+            conn.executemany(
+                "INSERT INTO index_metadata (key, value) VALUES (?, ?)",
+                [
+                    ("entry_counter", str(index._entry_counter)),
+                    ("block_entry_count", str(index._block_entry_count)),
+                    ("function_entry_count", str(index._function_entry_count)),
+                    ("saved_at", str(time.time())),
+                    ("astrograph_version", _ASTROGRAPH_VERSION),
+                ],
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
     def load_full_index(self, index: "CodeStructureIndex") -> bool:
         """
         Load the entire index from database.

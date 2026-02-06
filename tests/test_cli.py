@@ -55,14 +55,6 @@ class TestIndexCommand:
         captured = capsys.readouterr()
         assert "Indexed" in captured.out
 
-    def test_index_with_output(self, sample_dir, tmp_path):
-        output_file = tmp_path / "index.json"
-        with patch.object(
-            sys, "argv", ["cli", "index", str(sample_dir), "--output", str(output_file)]
-        ):
-            cli.main()
-        assert output_file.exists()
-
     def test_index_no_recursive(self, sample_dir, capsys):
         with patch.object(sys, "argv", ["cli", "index", str(sample_dir), "--no-recursive"]):
             cli.main()
@@ -119,32 +111,15 @@ def func2(x):
 class TestCheckCommand:
     """Tests for the check command."""
 
-    def test_check_similar(self, sample_dir, sample_file, tmp_path, capsys):
-        # First create an index
-        index_file = tmp_path / "index.json"
-        with patch.object(
-            sys, "argv", ["cli", "index", str(sample_dir), "--output", str(index_file)]
-        ):
-            cli.main()
-
-        # Then check
-        with patch.object(sys, "argv", ["cli", "check", str(index_file), str(sample_file)]):
+    def test_check_similar(self, sample_dir, sample_file, capsys):
+        with patch.object(sys, "argv", ["cli", "check", str(sample_dir), str(sample_file)]):
             cli.main()
         captured = capsys.readouterr()
         assert captured.out
 
-    def test_check_json(self, sample_dir, sample_file, tmp_path, capsys):
-        index_file = tmp_path / "index.json"
+    def test_check_json(self, sample_dir, sample_file, capsys):
         with patch.object(
-            sys, "argv", ["cli", "index", str(sample_dir), "--output", str(index_file)]
-        ):
-            cli.main()
-
-        # Clear the buffer from the index command
-        capsys.readouterr()
-
-        with patch.object(
-            sys, "argv", ["cli", "check", str(index_file), str(sample_file), "--json"]
+            sys, "argv", ["cli", "check", str(sample_dir), str(sample_file), "--json"]
         ):
             cli.main()
         captured = capsys.readouterr()
@@ -153,7 +128,9 @@ class TestCheckCommand:
 
     def test_check_no_similar(self, tmp_path, capsys):
         """Test when no similar code exists."""
-        (tmp_path / "indexed.py").write_text("def f(): pass")
+        indexed_dir = tmp_path / "indexed"
+        indexed_dir.mkdir()
+        (indexed_dir / "source.py").write_text("def f(): pass")
         (tmp_path / "check.py").write_text(
             """
 def very_different_function(a, b, c, d):
@@ -164,15 +141,9 @@ def very_different_function(a, b, c, d):
     return result
 """
         )
-        index_file = tmp_path / "index.json"
 
         with patch.object(
-            sys, "argv", ["cli", "index", str(tmp_path / "indexed.py"), "--output", str(index_file)]
-        ):
-            cli.main()
-
-        with patch.object(
-            sys, "argv", ["cli", "check", str(index_file), str(tmp_path / "check.py")]
+            sys, "argv", ["cli", "check", str(indexed_dir), str(tmp_path / "check.py")]
         ):
             cli.main()
         captured = capsys.readouterr()

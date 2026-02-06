@@ -344,6 +344,72 @@ def code_unit_to_ast_graph(unit: CodeUnit) -> ASTGraph:
     return build_ast_graph(ast_to_graph(unit.code), unit)
 
 
+# Label sets for graph relabeling (pattern normalization without re-parsing)
+_BINARY_OP_LABELS = frozenset(
+    {
+        "Add",
+        "Sub",
+        "Mult",
+        "Div",
+        "FloorDiv",
+        "Mod",
+        "Pow",
+        "LShift",
+        "RShift",
+        "BitOr",
+        "BitXor",
+        "BitAnd",
+        "MatMult",
+    }
+)
+_CMP_OP_LABELS = frozenset(
+    {
+        "Eq",
+        "NotEq",
+        "Lt",
+        "LtE",
+        "Gt",
+        "GtE",
+        "Is",
+        "IsNot",
+        "In",
+        "NotIn",
+    }
+)
+_UNARY_OP_LABELS = frozenset({"UAdd", "USub", "Not", "Invert"})
+_BOOL_OP_LABELS = frozenset({"And", "Or"})
+# Parent node prefixes whose operator suffix should be stripped
+_PARENT_OP_PREFIXES = frozenset({"BinOp", "UnaryOp", "BoolOp", "Compare", "AugAssign"})
+
+
+def _normalize_label(label: str) -> str:
+    """Normalize a single node label for pattern matching.
+
+    Maps operator-specific labels to their base types so that
+    structurally identical code with different operators produces
+    the same graph hash.
+    """
+    # Operator leaf nodes → normalized category
+    if label in _BINARY_OP_LABELS:
+        return "BinaryOp"
+    if label in _CMP_OP_LABELS:
+        return "CmpOp"
+    if label in _UNARY_OP_LABELS:
+        return "UnaryOp"
+    if label in _BOOL_OP_LABELS:
+        return "BoolOperator"
+
+    # Parent operator nodes: strip operator suffix after colon
+    # e.g., "BinOp:Add" → "BinOp", "Compare:Eq_NotEq" → "Compare"
+    if ":" in label:
+        prefix = label.split(":", 1)[0]
+        if prefix in _PARENT_OP_PREFIXES:
+            return prefix
+
+    # All other labels unchanged (including "Constant:int")
+    return label
+
+
 class PythonPlugin(BaseLanguagePlugin):
     """Python language plugin using stdlib ast module."""
 
@@ -374,3 +440,17 @@ class PythonPlugin(BaseLanguagePlugin):
         normalize_ops: bool = False,
     ) -> nx.DiGraph:
         return ast_to_graph(source, normalize_ops)
+
+    def normalize_graph_for_pattern(self, graph: nx.DiGraph) -> nx.DiGraph:
+        """Normalize operator labels for pattern matching via O(n) relabeling.
+
+        Returns a copy of the graph with operator-specific labels replaced by
+        base type labels. This avoids re-parsing the source code.
+        """
+        normalized: nx.DiGraph = graph.copy()
+        for _, data in normalized.nodes(data=True):
+            label = data.get("label", "")
+            new_label = _normalize_label(label)
+            if new_label != label:
+                data["label"] = new_label
+        return normalized

@@ -17,7 +17,6 @@ def main() -> None:
     # Index command
     index_parser = subparsers.add_parser("index", help="Index a codebase")
     index_parser.add_argument("path", help="Path to directory or file to index")
-    index_parser.add_argument("--output", "-o", help="Output index file path")
     index_parser.add_argument(
         "--no-recursive", action="store_true", help="Don't recurse into subdirectories"
     )
@@ -33,7 +32,7 @@ def main() -> None:
 
     # Check similar command
     check_parser = subparsers.add_parser("check", help="Check if similar code exists")
-    check_parser.add_argument("index_path", help="Path to index file")
+    check_parser.add_argument("path", help="Path to directory to index")
     check_parser.add_argument("code_file", help="Path to code file to check")
     check_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
@@ -55,10 +54,6 @@ def main() -> None:
 
         print(f"Indexed {len(entries)} code units")
         print(json.dumps(index.get_stats(), indent=2))
-
-        if args.output:
-            index.save(args.output)
-            print(f"Index saved to {args.output}")
 
     elif args.command == "duplicates":
         index = CodeStructureIndex()
@@ -109,7 +104,11 @@ def main() -> None:
 
     elif args.command == "check":
         index = CodeStructureIndex()
-        index.load(args.index_path)
+        check_path = Path(args.path)
+        if check_path.is_file():
+            index.index_file(str(check_path))
+        else:
+            index.index_directory(str(check_path))
 
         code = Path(args.code_file).read_text()
         results = index.find_similar(code, min_node_count=3)

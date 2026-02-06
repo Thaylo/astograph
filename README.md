@@ -1,4 +1,4 @@
-# ASTograph
+# ASTrograph
 
 ```
     █ █ █
@@ -18,7 +18,7 @@
 
 **Stop writing code that already exists in your codebase.**
 
-ASTograph is an MCP server that detects when you're about to create duplicate code - and blocks it before it happens.
+ASTrograph is an MCP server that detects when you're about to create duplicate code - and blocks it before it happens.
 
 ## See It In Action
 
@@ -36,13 +36,13 @@ def add_numbers(x, y):
     return x + y
 ```
 
-ASTograph intercepts and blocks:
+ASTrograph intercepts and blocks:
 ```
 BLOCKED: Cannot write - identical code exists at src/math.py:calculate_sum (lines 1-2).
 Reuse the existing implementation instead.
 ```
 
-Different variable names, same structure. ASTograph compares **code graphs**, not text.
+Different variable names, same structure. ASTrograph compares **code graphs**, not text.
 
 ## Quick Start
 

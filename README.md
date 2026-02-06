@@ -79,9 +79,9 @@ Large codebases accumulate duplicate code because:
 
 | Tool | What It Does |
 |------|--------------|
-| `astrograph_analyze` | Find duplicate Python code (verified via graph isomorphism) |
-| `astrograph_write` | Write Python file. Blocks if duplicate exists, warns on similarity |
-| `astrograph_edit` | Edit Python file. Blocks if new code duplicates existing, warns on similarity |
+| `astrograph_analyze` | Find duplicate code (verified via graph isomorphism) |
+| `astrograph_write` | Write file. Blocks if duplicate exists, warns on similarity |
+| `astrograph_edit` | Edit file. Blocks if new code duplicates existing, warns on similarity |
 
 [See all 8 tools →](#tool-reference)
 
@@ -90,7 +90,7 @@ Large codebases accumulate duplicate code because:
 - **Claude Code** - Tested. Project-level `.mcp.json`
 - **Any MCP client** - Should work (standard stdio protocol), but untested
 
-> **Note:** Python only for now.
+> **Note:** Python is built-in. More languages can be added via plugins — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -101,7 +101,7 @@ Large codebases accumulate duplicate code because:
 
 ### astrograph_analyze
 
-Find duplicate Python code (verified via graph isomorphism).
+Find duplicate code (verified via graph isomorphism).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -109,16 +109,16 @@ Find duplicate Python code (verified via graph isomorphism).
 
 ### astrograph_write
 
-Write Python file. Blocks if duplicate exists, warns on similarity.
+Write file. Blocks if duplicate exists, warns on similarity.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | string | Yes | - | Absolute file path |
-| `content` | string | Yes | - | Python code to write |
+| `content` | string | Yes | - | Code to write |
 
 ### astrograph_edit
 
-Edit Python file. Blocks if new code duplicates existing, warns on similarity.
+Edit file. Blocks if new code duplicates existing, warns on similarity.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -262,13 +262,13 @@ pip install -e .
 <details>
 <summary><strong>Technical details</strong></summary>
 
-1. **AST to Graph**: Python code is parsed into AST, then converted to a labeled directed graph
+1. **AST to Graph**: Source code is parsed into AST, then converted to a labeled directed graph
 2. **Weisfeiler-Leman Hashing**: Graphs are hashed using WL algorithm for O(1) lookup
 3. **Structural Fingerprinting**: Quick filtering based on node counts and degree sequences
 4. **Full Isomorphism Verification**: NetworkX VF2 algorithm confirms structural equivalence
 
 ```
-Python Source → AST Parser → Graph → WL Hash → Index Lookup → Match
+Source → Parser → Graph → WL Hash → Index Lookup → Match
 ```
 
 The Docker image runs in **event-driven mode** by default:
@@ -280,10 +280,16 @@ The Docker image runs in **event-driven mode** by default:
 
 ---
 
+## Language Support
+
+Python is supported out of the box. The plugin architecture allows adding new languages — see [Adding a New Language](CONTRIBUTING.md#adding-a-new-language-plugin) for a step-by-step guide.
+
 ## Development
 
 ```bash
 pip install -e ".[dev]"
+# If working on tree-sitter language plugins:
+pip install -e ".[dev,treesitter]"
 pytest tests/ -q
 docker build -t astrograph .
 ```

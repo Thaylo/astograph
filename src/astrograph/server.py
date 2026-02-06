@@ -133,7 +133,7 @@ def create_server() -> Server:
             ),
             Tool(
                 name="astrograph_write",
-                description="Write Python file. Blocks if duplicate exists, warns on similarity.",
+                description="Write file. Blocks if duplicate exists, warns on similarity.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -151,7 +151,7 @@ def create_server() -> Server:
             ),
             Tool(
                 name="astrograph_edit",
-                description="Edit Python file. Blocks if new code duplicates existing, warns on similarity.",
+                description="Edit file. Blocks if new code duplicates existing, warns on similarity.",
                 inputSchema={
                     "type": "object",
                     "properties": {

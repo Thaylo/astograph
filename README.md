@@ -59,7 +59,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
-        "-v", "/path/to/your/project:/workspace:ro",
+        "-v", "/path/to/your/project:/workspace",
         "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph"
       ]
@@ -88,7 +88,7 @@ Large codebases accumulate duplicate code because:
 | `astrograph_write` | Writes files, blocks if duplicate exists |
 | `astrograph_edit` | Edits files, blocks if new code is a duplicate |
 
-[See all 6 tools →](#tool-reference)
+[See all 8 tools →](#tool-reference)
 
 ## Works With
 
@@ -142,9 +142,29 @@ Suppress a duplicate group by its WL hash (shown in analyze output).
 |-----------|------|----------|---------|-------------|
 | `wl_hash` | string | Yes | - | WL hash from analyze output |
 
+### astrograph_suppress_batch
+
+Suppress multiple duplicate groups at once.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `wl_hashes` | string[] | Yes | - | List of WL hashes from analyze output |
+
 ### astrograph_unsuppress
 
 Remove suppression from a hash.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `wl_hash` | string | Yes | - | The WL hash to unsuppress |
+
+### astrograph_unsuppress_batch
+
+Remove suppression from multiple hashes at once.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `wl_hashes` | string[] | Yes | - | List of WL hashes to unsuppress |
 
 ### astrograph_list_suppressions
 
@@ -169,7 +189,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
-        "-v", "/path/to/your/project:/workspace:ro",
+        "-v", "/path/to/your/project:/workspace",
         "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph"
       ]
@@ -190,7 +210,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
-        "-v", "${workspaceFolder}:/workspace:ro",
+        "-v", "${workspaceFolder}:/workspace",
         "-v", "${workspaceFolder}/.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph"
       ]
@@ -211,7 +231,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
-        "-v", ".:/workspace:ro",
+        "-v", ".:/workspace",
         "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph"
       ]
@@ -260,7 +280,7 @@ Python Source → AST Parser → Graph → WL Hash → Index Lookup → Match
 ```
 
 The Docker image runs in **event-driven mode** by default:
-- In-memory index (no cold starts)
+- SQLite persistence with WAL mode (survives restarts)
 - File watching (auto re-index on changes)
 - Analysis cache (instant responses)
 

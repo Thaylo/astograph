@@ -67,7 +67,7 @@ Then in Claude:
 ## The Problem
 
 Large codebases accumulate duplicate code because:
-- **AI agents** generate code without knowing what already exists
+- **AI agents** have limited context windows - the bigger the codebase, the lower the chance existing code is loaded, creating a vicious cycle
 - Developers can't remember every function they wrote 6 months ago
 - Similar patterns get reimplemented independently
 - Copy-paste spreads bugs across multiple locations

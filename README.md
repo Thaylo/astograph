@@ -33,7 +33,7 @@ Large codebases accumulate structural duplication over time:
 
 ## Solution
 
-ASTograph provides 9 tools to break this cycle:
+ASTograph provides 11 tools to break this cycle:
 
 | Tool | Purpose |
 |------|---------|
@@ -41,6 +41,8 @@ ASTograph provides 9 tools to break this cycle:
 | `astograph_analyze` | Find existing structural duplicates |
 | `astograph_check` | Check before creating new code |
 | `astograph_compare` | Compare two code snippets |
+| `astograph_write` | Write file with duplicate detection (blocks if duplicate exists) |
+| `astograph_edit` | Edit file with duplicate detection (blocks if duplicate exists) |
 | `astograph_suppress` | Mute acceptable duplicates |
 | `astograph_unsuppress` | Restore suppressed duplicates |
 | `astograph_suppress_idiomatic` | Suppress all idiomatic patterns at once |
@@ -236,6 +238,35 @@ Suppress all idiomatic patterns (guard clauses, test setup, etc.) in one call. N
 ### astograph_list_suppressions
 
 List all currently suppressed hashes. No parameters.
+
+### astograph_write
+
+Write Python code to a file with automatic duplicate detection. **Blocks** if identical code exists elsewhere; **warns** on high similarity but proceeds.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file_path` | string | Yes | - | Absolute path to the file to write |
+| `content` | string | Yes | - | The Python code content to write |
+
+Returns:
+- **BLOCKED**: Identical code exists at location - file not written
+- **WARNING + Success**: Similar code exists - file written with warning
+- **Success**: No duplicates - file written
+
+### astograph_edit
+
+Edit a Python file with automatic duplicate detection. **Blocks** if the new code is identical to existing code elsewhere; **warns** on high similarity but proceeds.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file_path` | string | Yes | - | Absolute path to the file to edit |
+| `old_string` | string | Yes | - | The exact text to replace (must be unique in file) |
+| `new_string` | string | Yes | - | The replacement Python code |
+
+Returns:
+- **BLOCKED**: Identical code exists at location - edit not applied
+- **WARNING + Success**: Similar code exists - edit applied with warning
+- **Success**: No duplicates - edit applied
 
 ### astograph_check_staleness
 

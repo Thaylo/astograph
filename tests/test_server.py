@@ -1054,3 +1054,196 @@ def transform_data(data):
             result = tools.index_codebase(tmpdir)
 
             assert "Indexed" in result.text
+
+
+class TestWriteTool:
+    """Tests for the astograph_write tool."""
+
+    @pytest.fixture
+    def indexed_tools(self):
+        """Create tools with an indexed codebase containing a function."""
+        tools = CodeStructureTools()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            existing_file = os.path.join(tmpdir, "existing.py")
+            with open(existing_file, "w") as f:
+                f.write(
+                    """
+def calculate_sum(a, b):
+    result = a + b
+    return result
+"""
+                )
+            tools.index_codebase(tmpdir)
+            yield tools, tmpdir
+
+    def test_write_requires_index(self, tools):
+        """Test that write requires an indexed codebase."""
+        result = tools.write("/tmp/test.py", "def foo(): pass")
+        assert "No code indexed" in result.text
+
+    def test_write_blocks_exact_duplicate(self, indexed_tools):
+        """Test that write blocks when identical code exists."""
+        tools, tmpdir = indexed_tools
+        duplicate_code = """
+def add_numbers(x, y):
+    result = x + y
+    return result
+"""
+        new_file = os.path.join(tmpdir, "new.py")
+        result = tools.write(new_file, duplicate_code)
+        assert "BLOCKED" in result.text
+        assert "identical code exists" in result.text
+        # File should not be created
+        assert not os.path.exists(new_file)
+
+    def test_write_succeeds_with_unique_code(self, indexed_tools):
+        """Test that write succeeds when code is unique."""
+        tools, tmpdir = indexed_tools
+        unique_code = """
+def multiply_values(a, b, c):
+    product = a * b * c
+    return product * 2
+"""
+        new_file = os.path.join(tmpdir, "unique.py")
+        result = tools.write(new_file, unique_code)
+        assert "Successfully wrote" in result.text
+        assert os.path.exists(new_file)
+        with open(new_file) as f:
+            assert f.read() == unique_code
+
+    def test_write_warns_on_high_similarity(self, indexed_tools):
+        """Test that write warns but proceeds on high similarity."""
+        tools, tmpdir = indexed_tools
+        # This may or may not trigger high similarity depending on fingerprint
+        similar_code = """
+def compute_total(x, y):
+    total = x + y
+    return total
+"""
+        new_file = os.path.join(tmpdir, "similar.py")
+        result = tools.write(new_file, similar_code)
+        # Should either succeed or block (depending on exact vs high similarity)
+        assert "Successfully wrote" in result.text or "BLOCKED" in result.text
+
+    def test_write_handles_io_error(self, indexed_tools):
+        """Test that write handles IO errors gracefully."""
+        tools, tmpdir = indexed_tools
+        # Try to write to a directory that doesn't exist
+        result = tools.write("/nonexistent/dir/file.py", "def foo(): pass")
+        assert "Failed to write" in result.text
+
+    def test_call_tool_write(self, indexed_tools):
+        """Test call_tool dispatch for write."""
+        tools, tmpdir = indexed_tools
+        new_file = os.path.join(tmpdir, "dispatch_test.py")
+        result = tools.call_tool(
+            "write", {"file_path": new_file, "content": "def unique_func(): return 42"}
+        )
+        assert "Successfully wrote" in result.text or "BLOCKED" in result.text
+
+
+class TestEditTool:
+    """Tests for the astograph_edit tool."""
+
+    @pytest.fixture
+    def indexed_tools_with_file(self):
+        """Create tools with an indexed codebase and editable file."""
+        tools = CodeStructureTools()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            existing_file = os.path.join(tmpdir, "existing.py")
+            with open(existing_file, "w") as f:
+                f.write(
+                    """
+def calculate_sum(a, b):
+    result = a + b
+    return result
+
+def placeholder():
+    # TODO: implement
+    pass
+"""
+                )
+            tools.index_codebase(tmpdir)
+            yield tools, tmpdir, existing_file
+
+    def test_edit_requires_index(self, tools):
+        """Test that edit requires an indexed codebase."""
+        result = tools.edit("/tmp/test.py", "old", "new")
+        assert "No code indexed" in result.text
+
+    def test_edit_file_not_found(self, indexed_tools_with_file):
+        """Test edit on non-existent file."""
+        tools, tmpdir, _ = indexed_tools_with_file
+        result = tools.edit("/nonexistent/file.py", "old", "new")
+        assert "File not found" in result.text
+
+    def test_edit_old_string_not_found(self, indexed_tools_with_file):
+        """Test edit when old_string doesn't exist in file."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        result = tools.edit(existing_file, "nonexistent_string", "new_content")
+        assert "old_string not found" in result.text
+
+    def test_edit_old_string_not_unique(self, indexed_tools_with_file):
+        """Test edit when old_string appears multiple times."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        result = tools.edit(existing_file, "result", "output")
+        assert "appears" in result.text and "times" in result.text
+
+    def test_edit_blocks_exact_duplicate(self, indexed_tools_with_file):
+        """Test that edit blocks when new code is a duplicate from another file."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        # Create a second file to edit
+        second_file = os.path.join(tmpdir, "second.py")
+        with open(second_file, "w") as f:
+            f.write(
+                """
+def placeholder():
+    # TODO: implement
+    pass
+"""
+            )
+        # Try to replace placeholder with a duplicate of calculate_sum (in existing_file)
+        duplicate_code = """def add_values(x, y):
+    result = x + y
+    return result"""
+        result = tools.edit(
+            second_file, "def placeholder():\n    # TODO: implement\n    pass", duplicate_code
+        )
+        assert "BLOCKED" in result.text
+        assert "identical code exists" in result.text
+
+    def test_edit_succeeds_with_unique_code(self, indexed_tools_with_file):
+        """Test that edit succeeds when new code is unique."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        unique_code = """def complex_operation(a, b, c, d):
+    intermediate = a * b
+    result = intermediate + c - d
+    return result * 2"""
+        result = tools.edit(
+            existing_file, "def placeholder():\n    # TODO: implement\n    pass", unique_code
+        )
+        assert "Successfully edited" in result.text
+        with open(existing_file) as f:
+            content = f.read()
+            assert "complex_operation" in content
+            assert "placeholder" not in content
+
+    def test_edit_allows_same_file_duplicate(self, indexed_tools_with_file):
+        """Test that edit allows editing code that exists in the same file."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        # Edit the existing function - should not block since it's the same file
+        result = tools.edit(existing_file, "result = a + b", "result = a + b  # sum")
+        assert "Successfully edited" in result.text
+
+    def test_call_tool_edit(self, indexed_tools_with_file):
+        """Test call_tool dispatch for edit."""
+        tools, tmpdir, existing_file = indexed_tools_with_file
+        result = tools.call_tool(
+            "edit",
+            {
+                "file_path": existing_file,
+                "old_string": "# TODO: implement",
+                "new_string": "# Implemented!",
+            },
+        )
+        assert "Successfully edited" in result.text

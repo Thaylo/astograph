@@ -1026,6 +1026,116 @@ class CodeStructureTools:
 
         return ToolResult(prefix + "\n".join(lines))
 
+    def write(self, file_path: str, content: str) -> ToolResult:
+        """
+        Write Python code to a file with automatic duplicate detection.
+
+        Checks the content for structural duplicates before writing.
+        Blocks if identical code exists elsewhere; warns on high similarity.
+        """
+        if error := self._require_index():
+            return error
+
+        # Check for duplicates in the content
+        results = self.index.find_similar(content, min_node_count=self._CHECK_MIN_STATEMENTS)
+
+        exact = [r for r in results if r.similarity_type == "exact"]
+        high = [r for r in results if r.similarity_type == "high"]
+
+        if exact:
+            entry = exact[0].entry
+            return ToolResult(
+                f"BLOCKED: Cannot write - identical code exists at "
+                f"{entry.code_unit.file_path}:{entry.code_unit.name} "
+                f"(lines {entry.code_unit.line_start}-{entry.code_unit.line_end}). "
+                f"Reuse the existing implementation instead."
+            )
+
+        warning = ""
+        if high:
+            entry = high[0].entry
+            warning = (
+                f"WARNING: Similar code exists at {entry.code_unit.file_path}:{entry.code_unit.name}. "
+                f"Consider reusing. Proceeding with write.\n\n"
+            )
+
+        # Write the file
+        try:
+            with open(file_path, "w") as f:
+                f.write(content)
+            return ToolResult(warning + f"Successfully wrote {file_path}")
+        except OSError as e:
+            return ToolResult(f"Failed to write {file_path}: {e}")
+
+    def edit(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
+        """
+        Edit a Python file with automatic duplicate detection.
+
+        Checks the new_string for structural duplicates before applying.
+        Blocks if identical code exists elsewhere; warns on high similarity.
+        """
+        if error := self._require_index():
+            return error
+
+        # Check for duplicates in the new code being introduced
+        results = self.index.find_similar(new_string, min_node_count=self._CHECK_MIN_STATEMENTS)
+
+        exact = [r for r in results if r.similarity_type == "exact"]
+        high = [r for r in results if r.similarity_type == "high"]
+
+        if exact:
+            entry = exact[0].entry
+            # Don't block if the duplicate is in the same file (editing existing code)
+            if entry.code_unit.file_path != file_path:
+                return ToolResult(
+                    f"BLOCKED: Cannot edit - identical code exists at "
+                    f"{entry.code_unit.file_path}:{entry.code_unit.name} "
+                    f"(lines {entry.code_unit.line_start}-{entry.code_unit.line_end}). "
+                    f"Reuse the existing implementation instead."
+                )
+
+        warning = ""
+        if high:
+            entry = high[0].entry
+            if entry.code_unit.file_path != file_path:
+                warning = (
+                    f"WARNING: Similar code exists at {entry.code_unit.file_path}:{entry.code_unit.name}. "
+                    f"Consider reusing. Proceeding with edit.\n\n"
+                )
+
+        # Read the file
+        try:
+            with open(file_path) as f:
+                content = f.read()
+        except FileNotFoundError:
+            return ToolResult(f"File not found: {file_path}")
+        except OSError as e:
+            return ToolResult(f"Failed to read {file_path}: {e}")
+
+        # Check that old_string exists
+        if old_string not in content:
+            return ToolResult(
+                f"Edit failed: old_string not found in {file_path}. " f"The file may have changed."
+            )
+
+        # Check for uniqueness
+        count = content.count(old_string)
+        if count > 1:
+            return ToolResult(
+                f"Edit failed: old_string appears {count} times in {file_path}. "
+                f"Provide more context to make it unique."
+            )
+
+        # Apply the edit
+        new_content = content.replace(old_string, new_string, 1)
+
+        try:
+            with open(file_path, "w") as f:
+                f.write(new_content)
+            return ToolResult(warning + f"Successfully edited {file_path}")
+        except OSError as e:
+            return ToolResult(f"Failed to write {file_path}: {e}")
+
     def call_tool(self, name: str, arguments: dict) -> ToolResult:
         """Dispatch a tool call by name."""
         if name == "index_codebase":
@@ -1056,6 +1166,17 @@ class CodeStructureTools:
             return self.suppress_idiomatic()
         elif name == "check_staleness":
             return self.check_staleness(path=arguments.get("path"))
+        elif name == "write":
+            return self.write(
+                file_path=arguments["file_path"],
+                content=arguments["content"],
+            )
+        elif name == "edit":
+            return self.edit(
+                file_path=arguments["file_path"],
+                old_string=arguments["old_string"],
+                new_string=arguments["new_string"],
+            )
         else:
             return ToolResult(f"Unknown tool: {name}")
 

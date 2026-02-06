@@ -1,7 +1,7 @@
 """
 MCP server for code structure analysis.
 
-Provides 9 tools (all prefixed with astograph_):
+Provides 11 tools (all prefixed with astograph_):
 - astograph_index: Index Python files
 - astograph_analyze: Find duplicates and similar patterns
 - astograph_check: Check if code exists before creating
@@ -11,6 +11,8 @@ Provides 9 tools (all prefixed with astograph_):
 - astograph_list_suppressions: List all suppressed hashes
 - astograph_suppress_idiomatic: Suppress all idiomatic patterns at once
 - astograph_check_staleness: Check if index is stale
+- astograph_write: Write Python file with duplicate detection (blocks if duplicate exists)
+- astograph_edit: Edit Python file with duplicate detection (blocks if duplicate exists)
 """
 
 import asyncio
@@ -214,6 +216,56 @@ def create_server() -> Server:
                     },
                 },
             ),
+            Tool(
+                name="astograph_write",
+                description=(
+                    "Write Python code to a file with automatic duplicate detection. "
+                    "Checks the content for structural duplicates before writing. "
+                    "BLOCKS if identical code exists elsewhere (returns existing location). "
+                    "WARNS on high similarity but proceeds with write."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to write",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The Python code content to write",
+                        },
+                    },
+                    "required": ["file_path", "content"],
+                },
+            ),
+            Tool(
+                name="astograph_edit",
+                description=(
+                    "Edit a Python file with automatic duplicate detection. "
+                    "Checks the new_string for structural duplicates before applying. "
+                    "BLOCKS if identical code exists elsewhere (returns existing location). "
+                    "WARNS on high similarity but proceeds with edit."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to edit",
+                        },
+                        "old_string": {
+                            "type": "string",
+                            "description": "The exact text to replace (must be unique in file)",
+                        },
+                        "new_string": {
+                            "type": "string",
+                            "description": "The replacement Python code",
+                        },
+                    },
+                    "required": ["file_path", "old_string", "new_string"],
+                },
+            ),
         ]
 
     # Map external tool names to internal names
@@ -227,6 +279,8 @@ def create_server() -> Server:
         "astograph_list_suppressions": "list_suppressions",
         "astograph_suppress_idiomatic": "suppress_idiomatic",
         "astograph_check_staleness": "check_staleness",
+        "astograph_write": "write",
+        "astograph_edit": "edit",
     }
 
     @server.call_tool()

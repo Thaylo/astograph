@@ -184,7 +184,7 @@ List all currently suppressed hashes.
     "astrograph": {
       "command": "docker",
       "args": [
-        "run", "--rm", "-i",
+        "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace",
         "thaylo/astrograph"
       ]

@@ -1,5 +1,15 @@
 # ASTograph
 
+```
+    █ █ █
+  █ █ █ █ █
+  █       █
+  █ █ █ █ █
+    █ █ █
+  █ █   █ █
+  █       █
+```
+
 [![Docker](https://img.shields.io/badge/Docker-Hub-blue?logo=docker)](https://hub.docker.com/r/thaylo/astograph)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)

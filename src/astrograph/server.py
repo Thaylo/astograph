@@ -3,14 +3,13 @@ MCP server for code structure analysis.
 
 Auto-indexes the codebase at startup and maintains the index via file watching.
 
-Provides 7 tools (all prefixed with astrograph_):
+Provides 6 tools (all prefixed with astrograph_):
 - astrograph_analyze: Find duplicates and similar patterns
 - astrograph_write: Write Python file with duplicate detection (blocks if duplicate exists)
 - astrograph_edit: Edit Python file with duplicate detection (blocks if duplicate exists)
 - astrograph_suppress: Suppress a duplicate group by hash
 - astrograph_unsuppress: Remove suppression from a hash
 - astrograph_list_suppressions: List all suppressed hashes
-- astrograph_suppress_idiomatic: Suppress all idiomatic patterns at once
 """
 
 import asyncio
@@ -120,19 +119,6 @@ def create_server() -> Server:
                 },
             ),
             Tool(
-                name="astrograph_suppress_idiomatic",
-                description=(
-                    "Suppress ALL idiomatic patterns in one call. "
-                    "Convenience method to quickly suppress all patterns classified as idiomatic "
-                    "(guard clauses, test setup, delegate methods, dict building, etc.). "
-                    "Use instead of calling suppress() for each idiomatic pattern."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {},
-                },
-            ),
-            Tool(
                 name="astrograph_write",
                 description=(
                     "Write Python code to a file with automatic duplicate detection. "
@@ -192,7 +178,6 @@ def create_server() -> Server:
         "astrograph_suppress": "suppress",
         "astrograph_unsuppress": "unsuppress",
         "astrograph_list_suppressions": "list_suppressions",
-        "astrograph_suppress_idiomatic": "suppress_idiomatic",
     }
 
     @server.call_tool()

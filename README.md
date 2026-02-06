@@ -88,7 +88,7 @@ Large codebases accumulate duplicate code because:
 | `astrograph_write` | Writes files, blocks if duplicate exists |
 | `astrograph_edit` | Edits files, blocks if new code is a duplicate |
 
-[See all 7 tools →](#tool-reference)
+[See all 6 tools →](#tool-reference)
 
 ## Works With
 
@@ -149,10 +149,6 @@ Remove suppression from a hash.
 ### astrograph_list_suppressions
 
 List all currently suppressed hashes.
-
-### astrograph_suppress_idiomatic
-
-Suppress all idiomatic patterns (guard clauses, test setup, etc.) in one call.
 
 </details>
 

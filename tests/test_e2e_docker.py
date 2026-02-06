@@ -207,7 +207,7 @@ class TestMCPProtocol:
         tools = tools_response["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        # Verify all 7 tools are present (event-driven mode)
+        # Verify all 6 tools are present (event-driven mode)
         expected_tools = {
             "astrograph_analyze",
             "astrograph_write",
@@ -215,7 +215,6 @@ class TestMCPProtocol:
             "astrograph_suppress",
             "astrograph_unsuppress",
             "astrograph_list_suppressions",
-            "astrograph_suppress_idiomatic",
         }
         assert expected_tools == tool_names
 

@@ -626,61 +626,6 @@ def transform_data(data):
             assert "suppress(wl_hash=" in result.text
 
 
-class TestSuppressIdiomatic:
-    """Tests for suppress_idiomatic tool."""
-
-    @pytest.fixture(name="_indexed_with_idiomatic")
-    def _indexed_with_idiomatic_fixture(self, tools):
-        """Create and index a file with idiomatic patterns."""
-        code = """
-def process_items(items):
-    if not items:
-        return []
-    return [x * 2 for x in items]
-
-def validate_input(data):
-    if not data:
-        return []
-    return [d for d in data if d > 0]
-
-def transform_values(values):
-    if not values:
-        return []
-    return [v + 1 for v in values]
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(code)
-            f.flush()
-            tools.index_codebase(f.name)
-            yield f.name
-        os.unlink(f.name)
-
-    def test_suppress_idiomatic_not_indexed(self, tools):
-        """Test suppress_idiomatic when no code is indexed."""
-        result = tools.call_tool("suppress_idiomatic", {})
-        assert "No code indexed" in result.text
-
-    def test_suppress_idiomatic_with_patterns(self, tools, _indexed_with_idiomatic):
-        """Test suppress_idiomatic suppresses idiomatic patterns."""
-        # First analyze to see patterns
-        tools.analyze()
-
-        # Suppress idiomatic patterns
-        result = tools.call_tool("suppress_idiomatic", {})
-        assert "Suppressed" in result.text or "No idiomatic" in result.text
-
-        # If patterns were suppressed, verify they don't appear in subsequent analysis
-        if "Suppressed" in result.text:
-            # List suppressions should show some hashes
-            list_result = tools.list_suppressions()
-            assert "No hashes" not in list_result.text or "Suppressed" in list_result.text
-
-    def test_call_tool_suppress_idiomatic(self, tools, _indexed_with_idiomatic):
-        """Test call_tool dispatch for suppress_idiomatic."""
-        result = tools.call_tool("suppress_idiomatic", {})
-        assert result.text  # Should return some text
-
-
 class TestWorkflowIntegration:
     """Integration tests for multi-step workflows."""
 

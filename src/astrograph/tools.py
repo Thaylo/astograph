@@ -12,7 +12,6 @@ Supports two modes:
 - Event-driven mode: SQLite persistence, file watching, pre-computed analysis
 """
 
-import itertools
 import os
 import re
 from dataclasses import dataclass
@@ -991,50 +990,6 @@ class CodeStructureTools:
             prefix + f"Suppressed hashes ({len(suppressed)}):\n" + "\n".join(suppressed)
         )
 
-    def suppress_idiomatic(self) -> ToolResult:
-        """
-        Suppress all idiomatic patterns at once.
-
-        Convenience method to quickly suppress all patterns classified as idiomatic
-        (guard clauses, test setup, delegate methods, dict building, etc.).
-        """
-        if not self.index.entries:
-            return ToolResult("No code indexed. Use index_codebase first.")
-
-        # Find all idiomatic patterns from both function and block duplicates
-        suppressed = self.index.get_suppressed()
-        idiomatic_hashes: list[str] = []
-
-        # Check both function and block duplicates in a single pass
-        all_groups = itertools.chain(
-            self.index.find_all_duplicates(),
-            self.index.find_block_duplicates(),
-        )
-        for group in all_groups:
-            classification = self._classifier.classify_group(group)
-            if classification.suppress_suggestion:
-                wl_hash = group.wl_hash
-                if wl_hash and wl_hash not in suppressed:
-                    idiomatic_hashes.append(wl_hash)
-
-        if not idiomatic_hashes:
-            return ToolResult("No idiomatic patterns found to suppress.")
-
-        # Suppress all idiomatic hashes
-        suppressed_count = 0
-        for wl_hash in idiomatic_hashes:
-            if self._event_driven_mode and self._event_driven_index is not None:
-                success, _ = self._event_driven_index.suppress(wl_hash)
-            else:
-                success, _ = self.index.suppress(wl_hash)
-            if success:
-                suppressed_count += 1
-
-        return ToolResult(
-            f"Suppressed {suppressed_count} idiomatic pattern(s).\n"
-            f"These will no longer appear in analyze results."
-        )
-
     def _format_file_list(self, files: list[str], label: str, max_items: int = 10) -> list[str]:
         """Format a list of files for output, with truncation."""
         if not files:
@@ -1223,8 +1178,6 @@ class CodeStructureTools:
             return self.unsuppress(wl_hash=arguments["wl_hash"])
         elif name == "list_suppressions":
             return self.list_suppressions()
-        elif name == "suppress_idiomatic":
-            return self.suppress_idiomatic()
         elif name == "check_staleness":
             return self.check_staleness(path=arguments.get("path"))
         elif name == "write":

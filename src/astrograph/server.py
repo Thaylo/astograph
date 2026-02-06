@@ -3,13 +3,14 @@ MCP server for code structure analysis.
 
 Auto-indexes the codebase at startup and maintains the index via file watching.
 
-Provides 7 tools (all prefixed with astrograph_):
+Provides 8 tools (all prefixed with astrograph_):
 - astrograph_analyze: Find duplicates and similar patterns
 - astrograph_write: Write Python file with duplicate detection (blocks if duplicate exists)
 - astrograph_edit: Edit Python file with duplicate detection (blocks if duplicate exists)
 - astrograph_suppress: Suppress a duplicate group by hash
 - astrograph_suppress_batch: Suppress multiple duplicates by hash list
 - astrograph_unsuppress: Remove suppression from a hash
+- astrograph_unsuppress_batch: Remove suppression from multiple hashes
 - astrograph_list_suppressions: List all suppressed hashes
 """
 
@@ -105,6 +106,21 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="astrograph_unsuppress_batch",
+                description="Unsuppress multiple hashes.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "wl_hashes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "WL hashes to unsuppress",
+                        },
+                    },
+                    "required": ["wl_hashes"],
+                },
+            ),
+            Tool(
                 name="astrograph_list_suppressions",
                 description="List suppressed hashes.",
                 inputSchema={
@@ -162,6 +178,7 @@ def create_server() -> Server:
         "astrograph_suppress": "suppress",
         "astrograph_suppress_batch": "suppress_batch",
         "astrograph_unsuppress": "unsuppress",
+        "astrograph_unsuppress_batch": "unsuppress_batch",
         "astrograph_list_suppressions": "list_suppressions",
     }
 

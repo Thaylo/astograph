@@ -649,6 +649,41 @@ def transform_data(data):
         result = tools.call_tool("suppress_batch", {"wl_hashes": ["fake_hash"]})
         assert "not found" in result.text
 
+    def test_unsuppress_batch_valid(self, tools, _indexed_with_duplicates):
+        """Test batch unsuppress with valid hashes."""
+        import re
+
+        analyze_result = tools.analyze()
+        hashes = re.findall(r'suppress\(wl_hash="([^"]+)"\)', analyze_result.text)
+        if hashes:
+            tools.suppress_batch(hashes)
+            result = tools.unsuppress_batch(hashes)
+            assert "Unsuppressed" in result.text
+            assert str(len(hashes)) in result.text
+
+    def test_unsuppress_batch_mixed(self, tools, _indexed_with_duplicates):
+        """Test batch unsuppress with mix of valid and invalid hashes."""
+        import re
+
+        analyze_result = tools.analyze()
+        hashes = re.findall(r'suppress\(wl_hash="([^"]+)"\)', analyze_result.text)
+        if hashes:
+            tools.suppress_batch(hashes)
+            mixed = hashes + ["nonexistent_hash_abc"]
+            result = tools.unsuppress_batch(mixed)
+            assert "Unsuppressed" in result.text
+            assert "not found" in result.text
+
+    def test_unsuppress_batch_empty(self, tools, _indexed_with_duplicates):
+        """Test batch unsuppress with empty list."""
+        result = tools.unsuppress_batch([])
+        assert "No hashes provided" in result.text
+
+    def test_call_tool_unsuppress_batch(self, tools, _indexed_with_duplicates):
+        """Test call_tool dispatch for unsuppress_batch."""
+        result = tools.call_tool("unsuppress_batch", {"wl_hashes": ["fake_hash"]})
+        assert "not found" in result.text
+
 
 class TestWorkflowIntegration:
     """Integration tests for multi-step workflows."""

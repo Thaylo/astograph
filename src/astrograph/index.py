@@ -800,6 +800,16 @@ class CodeStructureIndex:
                 not_found.append(wl_hash)
         return suppressed, not_found
 
+    def unsuppress_batch(self, wl_hashes: list[str]) -> tuple[list[str], list[str]]:
+        """Unsuppress multiple hashes. Returns (unsuppressed, not_found)."""
+        unsuppressed, not_found = [], []
+        for wl_hash in wl_hashes:
+            if self.unsuppress(wl_hash):
+                unsuppressed.append(wl_hash)
+            else:
+                not_found.append(wl_hash)
+        return unsuppressed, not_found
+
     def get_suppressed(self) -> list[str]:
         """Get list of suppressed hashes."""
         return list(self.suppressed_hashes)

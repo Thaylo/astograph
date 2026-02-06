@@ -332,6 +332,49 @@ def transform(data):
                     assert wl_hash in edi2.index.suppressed_hashes
                 edi2.close()
 
+    def test_unsuppress_batch_with_persistence(self):
+        """Test batch unsuppression with automatic persistence."""
+        from astrograph.event_driven import EventDrivenIndex
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            code = """
+def process(items):
+    for item in items:
+        if item > 0:
+            print(item)
+
+def transform(data):
+    for element in data:
+        if element > 0:
+            print(element)
+"""
+            file1 = os.path.join(tmpdir, "file1.py")
+            with open(file1, "w") as f:
+                f.write(code)
+
+            db_path = os.path.join(tmpdir, "index.db")
+
+            # Index, suppress, then batch unsuppress
+            edi1 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+            edi1.index_directory(tmpdir)
+
+            groups = edi1.index.find_all_duplicates(min_node_count=3)
+            if groups:
+                hashes = [g.wl_hash for g in groups]
+                edi1.suppress_batch(hashes)
+                unsuppressed, not_found = edi1.unsuppress_batch(hashes)
+                assert len(unsuppressed) == len(hashes)
+                assert len(not_found) == 0
+                edi1.close()
+
+                # Load fresh and verify unsuppressions persisted
+                edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
+                edi2.load_from_persistence()
+
+                for wl_hash in hashes:
+                    assert wl_hash not in edi2.index.suppressed_hashes
+                edi2.close()
+
     def test_get_stats(self):
         """Test comprehensive statistics."""
         from astrograph.event_driven import EventDrivenIndex

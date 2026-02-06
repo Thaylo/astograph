@@ -635,6 +635,26 @@ class CodeStructureTools:
             parts.append("No hashes provided.")
         return ToolResult(prefix + " ".join(parts))
 
+    def unsuppress_batch(self, wl_hashes: list[str]) -> ToolResult:
+        """Unsuppress multiple hashes."""
+        if error := self._require_index():
+            return error
+        prefix = self._check_invalidated_suppressions()
+        active_index: CodeStructureIndex | EventDrivenIndex = (
+            self._event_driven_index
+            if self._event_driven_mode and self._event_driven_index
+            else self.index
+        )
+        unsuppressed, not_found = active_index.unsuppress_batch(wl_hashes)
+        parts = []
+        if unsuppressed:
+            parts.append(f"Unsuppressed {len(unsuppressed)} hashes.")
+        if not_found:
+            parts.append(f"{len(not_found)} not found: {', '.join(not_found)}")
+        if not parts:
+            parts.append("No hashes provided.")
+        return ToolResult(prefix + " ".join(parts))
+
     def list_suppressions(self) -> ToolResult:
         """List all suppressed hashes."""
         prefix = self._check_invalidated_suppressions()
@@ -890,6 +910,8 @@ class CodeStructureTools:
             return self.suppress_batch(wl_hashes=arguments["wl_hashes"])
         elif name == "unsuppress":
             return self.unsuppress(wl_hash=arguments["wl_hash"])
+        elif name == "unsuppress_batch":
+            return self.unsuppress_batch(wl_hashes=arguments["wl_hashes"])
         elif name == "list_suppressions":
             return self.list_suppressions()
         elif name == "check_staleness":

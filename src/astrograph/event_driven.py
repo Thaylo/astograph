@@ -420,6 +420,16 @@ class EventDrivenIndex:
 
         return success
 
+    def unsuppress_batch(self, wl_hashes: list[str]) -> tuple[list[str], list[str]]:
+        """Unsuppress multiple hashes and persist. Returns (unsuppressed, not_found)."""
+        unsuppressed, not_found = [], []
+        for wl_hash in wl_hashes:
+            if self.unsuppress(wl_hash):
+                unsuppressed.append(wl_hash)
+            else:
+                not_found.append(wl_hash)
+        return unsuppressed, not_found
+
     def suppress_batch(
         self, wl_hashes: list[str], reason: str | None = None
     ) -> tuple[list[str], list[str]]:

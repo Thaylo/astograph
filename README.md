@@ -88,9 +88,8 @@ Large codebases accumulate duplicate code because:
 | `astograph_write` | Writes files, blocks if duplicate exists |
 | `astograph_edit` | Edits files, blocks if new code is a duplicate |
 | `astograph_check` | Check if code exists before writing |
-| `astograph_index` | Re-index specific paths (auto-indexed at startup) |
 
-[See all 11 tools →](#tool-reference)
+[See all 10 tools →](#tool-reference)
 
 ## Works With
 
@@ -106,15 +105,6 @@ Large codebases accumulate duplicate code because:
 
 <details>
 <summary><strong>Click to expand full tool documentation</strong></summary>
-
-### astograph_index
-
-Index a Python codebase for structural analysis. *(Auto-indexed at startup; use for re-indexing specific paths.)*
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | Yes | - | Path to directory or file to index |
-| `incremental` | boolean | No | `true` | Only re-index changed files |
 
 ### astograph_analyze
 

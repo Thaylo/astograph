@@ -1,8 +1,9 @@
 """
 MCP server for code structure analysis.
 
-Provides 11 tools (all prefixed with astograph_):
-- astograph_index: Index Python files
+Auto-indexes the codebase at startup and maintains the index via file watching.
+
+Provides 10 tools (all prefixed with astograph_):
 - astograph_analyze: Find duplicates and similar patterns
 - astograph_check: Check if code exists before creating
 - astograph_compare: Compare two code snippets
@@ -49,33 +50,6 @@ def create_server() -> Server:
     @server.list_tools()
     async def list_tools() -> list[Tool]:
         return [
-            Tool(
-                name="astograph_index",
-                description=(
-                    "Index a Python codebase for structural analysis. "
-                    "Parses all .py files and builds a searchable index. "
-                    "Currently supports Python only. "
-                    "Note: The codebase is auto-indexed at startup."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Path to the directory or file to index",
-                        },
-                        "incremental": {
-                            "type": "boolean",
-                            "description": (
-                                "If true, only re-index files that have changed since last indexing. "
-                                "Faster for large codebases with few changes. Default: true"
-                            ),
-                            "default": True,
-                        },
-                    },
-                    "required": ["path"],
-                },
-            ),
             Tool(
                 name="astograph_analyze",
                 description=(
@@ -271,7 +245,6 @@ def create_server() -> Server:
 
     # Map external tool names to internal names
     TOOL_NAME_MAP = {
-        "astograph_index": "index_codebase",
         "astograph_analyze": "analyze",
         "astograph_check": "check",
         "astograph_compare": "compare",

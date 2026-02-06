@@ -92,9 +92,11 @@ Large codebases accumulate duplicate code because:
 
 ## Works With
 
+- **Claude Code** - Project-level `.mcp.json`
 - **Claude Desktop** - Full MCP integration
 - **Cursor** - Via MCP settings
-- **Any MCP Client** - Standard protocol
+- **Windsurf** - Via MCP settings
+- **VS Code** - Via Copilot MCP
 
 > **Note:** Python only for now. More languages coming.
 
@@ -175,6 +177,26 @@ List all currently suppressed hashes.
 ---
 
 ## Configuration Examples
+
+<details>
+<summary><strong>Claude Code (.mcp.json in project root)</strong></summary>
+
+```json
+{
+  "mcpServers": {
+    "astrograph": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", ".:/workspace",
+        "thaylo/astrograph"
+      ]
+    }
+  }
+}
+```
+
+</details>
 
 <details>
 <summary><strong>Claude Desktop</strong></summary>

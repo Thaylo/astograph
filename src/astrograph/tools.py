@@ -502,18 +502,16 @@ class CodeStructureTools:
         # Emit section headers when both source and test findings exist
         has_both = bool(source_findings) and bool(test_findings)
         num = 1
-        if has_both:
-            lines.append("=== Source code ===")
-            lines.append("")
-        for f in source_findings:
-            lines.extend(_format_finding(num, f))
-            num += 1
-        if has_both:
-            lines.append("=== Tests ===")
-            lines.append("")
-        for f in test_findings:
-            lines.extend(_format_finding(num, f))
-            num += 1
+        for header, section in [
+            ("=== Source code ===", source_findings),
+            ("=== Tests ===", test_findings),
+        ]:
+            if has_both:
+                lines.append(header)
+                lines.append("")
+            for f in section:
+                lines.extend(_format_finding(num, f))
+                num += 1
 
         # Compact footer
         if suppressed_count > 0:
@@ -526,16 +524,11 @@ class CodeStructureTools:
         report_path = self._write_analysis_report(full_output)
         if report_path is not None:
             # Count type breakdown
-            exact_count = sum(1 for f in findings if f["type"] == "exact")
-            block_count = sum(1 for f in findings if f["type"] == "block")
-            pattern_count = sum(1 for f in findings if f["type"] == "pattern")
-            type_parts = []
-            if exact_count:
-                type_parts.append(f"{exact_count} exact")
-            if block_count:
-                type_parts.append(f"{block_count} block")
-            if pattern_count:
-                type_parts.append(f"{pattern_count} pattern")
+            type_parts = [
+                f"{count} {name}"
+                for name in ("exact", "block", "pattern")
+                if (count := sum(1 for f in findings if f["type"] == name))
+            ]
             summary_parts = [f"Found {len(findings)} duplicate groups: {', '.join(type_parts)}."]
 
             # Source vs test breakdown with duplicated line estimate

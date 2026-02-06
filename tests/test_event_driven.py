@@ -403,10 +403,35 @@ def transform(data):
 class TestDeltaPersistence:
     """Tests for incremental delta persistence (save_file_entries instead of save_full_index)."""
 
-    def test_incremental_uses_delta_persistence(self):
-        """After initial full index, incremental updates use per-file saves."""
+    @staticmethod
+    def _mock_persistence(edi):
+        """Wrap persistence methods with mocks for call counting."""
+        from contextlib import contextmanager
         from unittest.mock import patch
 
+        @contextmanager
+        def _ctx():
+            with (
+                patch.object(
+                    edi._persistence, "save_full_index", wraps=edi._persistence.save_full_index
+                ) as mock_full,
+                patch.object(
+                    edi._persistence,
+                    "save_file_entries",
+                    wraps=edi._persistence.save_file_entries,
+                ) as mock_file,
+                patch.object(
+                    edi._persistence,
+                    "save_index_metadata",
+                    wraps=edi._persistence.save_index_metadata,
+                ) as mock_meta,
+            ):
+                yield mock_full, mock_file, mock_meta
+
+        return _ctx()
+
+    def test_incremental_uses_delta_persistence(self):
+        """After initial full index, incremental updates use per-file saves."""
         from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -434,28 +459,11 @@ class TestDeltaPersistence:
 
             # Second: incremental update should use delta persistence
             edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
-            with (
-                patch.object(
-                    edi2._persistence, "save_full_index", wraps=edi2._persistence.save_full_index
-                ) as mock_full,
-                patch.object(
-                    edi2._persistence,
-                    "save_file_entries",
-                    wraps=edi2._persistence.save_file_entries,
-                ) as mock_file,
-                patch.object(
-                    edi2._persistence,
-                    "save_index_metadata",
-                    wraps=edi2._persistence.save_index_metadata,
-                ) as mock_meta,
-            ):
+            with self._mock_persistence(edi2) as (mock_full, mock_file, mock_meta):
                 edi2.index_directory(tmpdir)
 
-                # save_full_index should NOT have been called for incremental
                 assert mock_full.call_count == 0
-                # save_file_entries should have been called for the changed file
                 assert mock_file.call_count == 1
-                # save_index_metadata should have been called once
                 assert mock_meta.call_count == 1
 
             edi2.close()
@@ -493,15 +501,12 @@ class TestDeltaPersistence:
                 wraps=edi2._persistence.delete_file_entries,
             ) as mock_delete:
                 edi2.index_directory(tmpdir)
-                # delete_file_entries should have been called for the removed file
                 assert mock_delete.call_count == 1
 
             edi2.close()
 
     def test_incremental_no_changes_skips_persistence(self):
         """If nothing changed, no persistence calls are made."""
-        from unittest.mock import patch
-
         from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -518,24 +523,9 @@ class TestDeltaPersistence:
 
             # Incremental with no changes
             edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
-            with (
-                patch.object(
-                    edi2._persistence, "save_full_index", wraps=edi2._persistence.save_full_index
-                ) as mock_full,
-                patch.object(
-                    edi2._persistence,
-                    "save_file_entries",
-                    wraps=edi2._persistence.save_file_entries,
-                ) as mock_file,
-                patch.object(
-                    edi2._persistence,
-                    "save_index_metadata",
-                    wraps=edi2._persistence.save_index_metadata,
-                ) as mock_meta,
-            ):
+            with self._mock_persistence(edi2) as (mock_full, mock_file, mock_meta):
                 edi2.index_directory(tmpdir)
 
-                # Nothing should have been called
                 assert mock_full.call_count == 0
                 assert mock_file.call_count == 0
                 assert mock_meta.call_count == 0

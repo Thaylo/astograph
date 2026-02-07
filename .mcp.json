@@ -5,7 +5,7 @@
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace",
-        "thaylo/astrograph"
+        "thaylo/astrograph:latest"
       ]
     }
   }

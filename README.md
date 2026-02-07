@@ -56,7 +56,7 @@ Add `.mcp.json` to your project root:
       "args": [
         "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace",
-        "thaylo/astrograph"
+        "thaylo/astrograph:latest"
       ]
     }
   }
@@ -196,7 +196,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
         "run", "--rm", "-i", "--pull", "always",
         "-v", "/path/to/your/project:/workspace",
         "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
-        "thaylo/astrograph"
+        "thaylo/astrograph:latest"
       ]
     }
   }
@@ -215,7 +215,7 @@ args = [
   "run", "--rm", "-i", "--pull", "always",
   "-v", "/path/to/your/project:/workspace",
   "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
-  "thaylo/astrograph"
+  "thaylo/astrograph:latest"
 ]
 ```
 
@@ -238,7 +238,7 @@ ASTrograph auto-indexes at startup using:
         "run", "--rm", "-i", "--pull", "always",
         "-v", "${workspaceFolder}:/workspace",
         "-v", "${workspaceFolder}/.metadata_astrograph:/workspace/.metadata_astrograph",
-        "thaylo/astrograph"
+        "thaylo/astrograph:latest"
       ]
     }
   }
@@ -259,7 +259,7 @@ ASTrograph auto-indexes at startup using:
         "run", "--rm", "-i", "--pull", "always",
         "-v", ".:/workspace",
         "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
-        "thaylo/astrograph"
+        "thaylo/astrograph:latest"
       ]
     }
   }

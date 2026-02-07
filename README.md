@@ -11,6 +11,7 @@
 ```
 
 [![Docker](https://img.shields.io/badge/Docker-Hub-blue?logo=docker)](https://hub.docker.com/r/thaylo/astrograph)
+[![Arch](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue?logo=linux)](https://hub.docker.com/r/thaylo/astrograph)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-Server-purple)](https://modelcontextprotocol.io)
@@ -62,6 +63,8 @@ Add `.mcp.json` to your project root:
   }
 }
 ```
+
+Multi-arch Docker image: works on both **amd64** (x86_64) and **arm64** (Apple Silicon, AWS Graviton).
 
 The codebase is auto-indexed at startup and re-indexed on file changes. Then:
 1. `astrograph_analyze()` - Find existing duplicates
@@ -318,6 +321,17 @@ The server runs in **event-driven mode**:
 ## Language Support
 
 Python is supported out of the box. The plugin architecture allows adding new languages — see [Adding a New Language](CONTRIBUTING.md#adding-a-new-language-plugin) for a step-by-step guide.
+
+## CLI
+
+ASTrograph also ships a standalone CLI for quick analysis outside of MCP:
+
+```bash
+pip install .
+astrograph-cli duplicates /path/to/project     # Find duplicates
+astrograph-cli check /path/to/project code.py   # Check for similar code
+astrograph-cli compare file1.py file2.py         # Compare two files
+```
 
 ## Development
 

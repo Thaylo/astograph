@@ -239,6 +239,11 @@ class LSPLanguagePluginBase(BaseLanguagePlugin):
                     parent_unit_type=next_parent_type,
                 )
 
+    def _is_import_only_symbol_unit(self, code: str) -> bool:
+        """Filter LSP import-symbol noise (common in __init__.py/module exports)."""
+        stripped = code.strip()
+        return stripped.startswith("from ") or stripped.startswith("import ")
+
     def extract_code_units(
         self,
         source: str,
@@ -263,6 +268,8 @@ class LSPLanguagePluginBase(BaseLanguagePlugin):
                 source_lines=source_lines,
                 symbol=symbol,
             )
+            if self._is_import_only_symbol_unit(code):
+                continue
 
             yield CodeUnit(
                 name=symbol.name,

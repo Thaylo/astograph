@@ -334,11 +334,10 @@ class TestJavaScriptE2EWorkflow:
         assert "no code indexed" not in analyze_text.lower()
         assert "duplicate" in analyze_text.lower()
 
-        report_path = (
-            Path(sample_javascript_workspace) / ".metadata_astrograph" / "analysis_report.txt"
-        )
-        assert report_path.exists()
-        report_text = report_path.read_text()
+        metadata_dir = Path(sample_javascript_workspace) / ".metadata_astrograph"
+        reports = sorted(metadata_dir.glob("analysis_report_*.txt"))
+        assert reports
+        report_text = reports[-1].read_text()
         assert "math_utils.js" in report_text
         assert "suppress(wl_hash=" in report_text
 

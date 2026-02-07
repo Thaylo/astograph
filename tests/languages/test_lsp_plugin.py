@@ -130,6 +130,33 @@ class FakeJavaScriptLSPClient:
         return symbols
 
 
+class FakeImportNoiseClient:
+    """Client that returns an import symbol plus a real class symbol."""
+
+    def document_symbols(
+        self,
+        *,
+        source: str,
+        file_path: str,
+        language_id: str,
+    ) -> list[LSPSymbol]:
+        del source, file_path, language_id
+        return [
+            _make_symbol(
+                name="Foo",
+                kind=5,  # SymbolKind.Class
+                start_line=0,
+                end_line=0,
+            ),
+            _make_symbol(
+                name="Greeter",
+                kind=5,  # SymbolKind.Class
+                start_line=2,
+                end_line=4,
+            ),
+        ]
+
+
 class TestJavaScriptLSPPlugin:
     """Tests for JavaScriptLSPPlugin behavior."""
 
@@ -220,3 +247,10 @@ function sum(x, y) {
         assert registry.get_plugin_for_file(file_two) is plugin
         assert len(entries) >= 2
         assert index.has_duplicates(min_node_count=3)
+
+    def test_extract_code_units_skips_import_symbol_noise(self):
+        source = 'import { Foo } from "./foo";\n\n' "class Greeter {\n" "  greet() {}\n" "}\n"
+        plugin = JavaScriptLSPPlugin(lsp_client=FakeImportNoiseClient())
+        units = list(plugin.extract_code_units(source, "sample.js"))
+        assert all(unit.name != "Foo" for unit in units)
+        assert any(unit.name == "Greeter" for unit in units)

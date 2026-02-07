@@ -344,6 +344,12 @@ astrograph-cli install-lsps
 
 The same plugin architecture supports adding new languages via tree-sitter or LSP-backed adapters — see [Adding a New Language](CONTRIBUTING.md#adding-a-new-language-plugin).
 
+## Detection Policy
+
+Formal product and engineering decisions (including duplicate significance thresholds,
+reporting format, and language-plugin trade-offs) are documented in
+[`DECISIONS_AND_TRADE_OFFS.md`](DECISIONS_AND_TRADE_OFFS.md).
+
 ## CLI
 
 ASTrograph also ships a standalone CLI for quick analysis outside of MCP:

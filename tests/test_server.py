@@ -330,6 +330,24 @@ class TestAnalyze:
         # May or may not find duplicates depending on internal threshold
         assert result.text
 
+    def test_analyze_uses_timestamped_report_only(self, tools, sample_python_file):
+        tools.index_codebase(sample_python_file)
+        result = tools.analyze()
+        if "Details: .metadata_astrograph/" not in result.text:
+            pytest.skip("No duplicates found to generate report")
+
+        match = re.search(r"Details: \.metadata_astrograph/([^\s]+)", result.text)
+        assert match
+        report_name = match.group(1)
+        assert report_name.startswith("analysis_report_")
+        assert report_name != "analysis_report.txt"
+        assert "Latest:" not in result.text
+
+        indexed = Path(tools._last_indexed_path).resolve()
+        base = indexed.parent if not indexed.is_dir() else indexed
+        legacy_report = base / PERSISTENCE_DIR / "analysis_report.txt"
+        assert not legacy_report.exists()
+
 
 class TestCheck:
     """Tests for check tool."""

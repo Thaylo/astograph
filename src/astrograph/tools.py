@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Persistence directory name for cached index
 PERSISTENCE_DIR = ".metadata_astrograph"
-ANALYSIS_REPORT_LATEST = "analysis_report.txt"
+LEGACY_ANALYSIS_REPORT = "analysis_report.txt"
 
 
 def _requires_index(func: Callable[..., ToolResult]) -> Callable[..., ToolResult]:
@@ -102,6 +102,8 @@ class CodeStructureTools(CloseOnExitMixin):
     # Internal defaults - not exposed to MCP users
     _MIN_STATEMENTS = 25  # Filter trivial code (~6+ lines of Python)
     _CHECK_MIN_STATEMENTS = 10  # Lower threshold for pre-creation checks
+    _MIN_BLOCK_DUPLICATE_NODES = 10  # Reduce noisy tiny if/for block duplicates
+    _MIN_BLOCK_DUPLICATE_LINES = 3  # Treat 1-2 line guards as acceptable repetition
 
     def __init__(
         self,
@@ -423,10 +425,6 @@ class CodeStructureTools(CloseOnExitMixin):
     def _write_analysis_report(self, content: str) -> Path | None:
         """Write full analysis report to persistence directory.
 
-        Writes both:
-        - timestamped archive file (returned path)
-        - stable latest file (analysis_report.txt) for backward compatibility
-
         Returns the timestamped file path on success, None on failure.
         """
         if self._last_indexed_path is None:
@@ -437,20 +435,18 @@ class CodeStructureTools(CloseOnExitMixin):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             report_file = persistence_path / f"analysis_report_{timestamp}.txt"
             report_file.write_text(content)
-            latest_report_file = persistence_path / ANALYSIS_REPORT_LATEST
-            latest_report_file.write_text(content)
             return report_file
         except OSError:
             return None
 
     def _clear_analysis_report(self) -> None:
-        """Remove stale analysis report file when no findings."""
+        """Remove stale legacy report alias when no findings."""
         if self._last_indexed_path is not None:
             try:
-                report_file = (
-                    _get_persistence_path(self._last_indexed_path) / ANALYSIS_REPORT_LATEST
+                legacy_report = (
+                    _get_persistence_path(self._last_indexed_path) / LEGACY_ANALYSIS_REPORT
                 )
-                report_file.unlink(missing_ok=True)
+                legacy_report.unlink(missing_ok=True)
             except OSError:
                 pass
 
@@ -525,11 +521,15 @@ class CodeStructureTools(CloseOnExitMixin):
             )
 
         # Find block duplicates (duplicate code blocks within functions)
-        block_groups = self.index.find_block_duplicates(min_node_count=min_nodes)
+        block_groups = self.index.find_block_duplicates(
+            min_node_count=self._MIN_BLOCK_DUPLICATE_NODES
+        )
         for group in block_groups:
             block_type = group.entries[0].code_unit.block_type or "block"
             first = group.entries[0]
             line_count = first.code_unit.line_end - first.code_unit.line_start + 1
+            if line_count < self._MIN_BLOCK_DUPLICATE_LINES:
+                continue
             parent_funcs = list(
                 {e.code_unit.parent_name for e in group.entries if e.code_unit.parent_name}
             )
@@ -665,7 +665,6 @@ class CodeStructureTools(CloseOnExitMixin):
             summary_parts.append(
                 f"Details: {PERSISTENCE_DIR}/{report_path.name} ({line_count_report} lines)"
             )
-            summary_parts.append(f"Latest: {PERSISTENCE_DIR}/{ANALYSIS_REPORT_LATEST}")
             summary_parts.append("Read the file to see locations and suppress commands.")
             return ToolResult(invalidation_warning + staleness_warning + "\n".join(summary_parts))
 

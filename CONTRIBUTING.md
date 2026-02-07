@@ -28,6 +28,9 @@ Current first-party plugin-backed languages:
 - `python` (`PythonLSPPlugin`)
 - `javascript_lsp` (`JavaScriptLSPPlugin`)
 
+For behavior-affecting defaults and rationale, see
+[`DECISIONS_AND_TRADE_OFFS.md`](DECISIONS_AND_TRADE_OFFS.md).
+
 ## Adding a New Language Plugin
 
 ASTrograph uses a plugin architecture for language support. Each language plugin tells the system how to parse source files into graphs that can be compared for structural equivalence.

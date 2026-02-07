@@ -11,7 +11,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .cloud_detect import check_and_warn_cloud_sync, is_cloud_synced_path
 from .index import CodeStructureIndex, DuplicateGroup, batch_hash_operation
@@ -25,6 +25,17 @@ try:
 except ImportError:
     HAS_WATCHDOG = False
     FileWatcher = None  # type: ignore
+
+
+def _make_file_event_handler(
+    event_type: str, target_attr: str
+) -> Callable[["EventDrivenIndex", str], None]:
+    """Build a thin file-event handler bound to a target method name."""
+
+    def _handler(self: "EventDrivenIndex", path: str) -> None:
+        self._handle_file_event(path, event_type, getattr(self, target_attr))
+
+    return _handler
 
 
 class AnalysisCache:
@@ -47,10 +58,14 @@ class AnalysisCache:
         with self._lock:
             self._valid = False
 
+    def _read_attr(self, attr: str) -> Any:
+        """Read an attribute while holding the cache lock."""
+        with self._lock:
+            return getattr(self, attr)
+
     def is_valid(self) -> bool:
         """Check if cache is valid."""
-        with self._lock:
-            return self._valid
+        return cast(bool, self._read_attr("_valid"))
 
     def get(self) -> tuple[list[DuplicateGroup], list[DuplicateGroup], list[DuplicateGroup]] | None:
         """Get cached results if valid."""
@@ -80,8 +95,7 @@ class AnalysisCache:
     @property
     def computed_at(self) -> float:
         """When the cache was last computed."""
-        with self._lock:
-            return self._computed_at
+        return cast(float, self._read_attr("_computed_at"))
 
 
 class EventDrivenIndex:
@@ -209,23 +223,17 @@ class EventDrivenIndex:
     # File Event Handlers
     # =========================================================================
 
-    def _handle_file_event(self, path: str, event_type: str, handler: Callable) -> None:
+    def _handle_file_event(
+        self, path: str, event_type: str, handler: Callable[[str], None]
+    ) -> None:
         """Generic file event handler to reduce duplication."""
         logger.debug(f"Processing file {event_type}: {path}")
         handler(path)
         self._file_events_processed += 1
 
-    def _on_file_changed(self, path: str) -> None:
-        """Handle file modification event."""
-        self._handle_file_event(path, "change", self._reindex_file)
-
-    def _on_file_created(self, path: str) -> None:
-        """Handle file creation event."""
-        self._handle_file_event(path, "creation", self._reindex_file)
-
-    def _on_file_deleted(self, path: str) -> None:
-        """Handle file deletion event."""
-        self._handle_file_event(path, "deletion", self._remove_file)
+    _on_file_changed = _make_file_event_handler("change", "_reindex_file")
+    _on_file_created = _make_file_event_handler("creation", "_reindex_file")
+    _on_file_deleted = _make_file_event_handler("deletion", "_remove_file")
 
     def _reindex_file(self, path: str) -> None:
         """Re-index a single file and persist incrementally."""
@@ -240,11 +248,7 @@ class EventDrivenIndex:
             metadata = self.index.file_metadata[path]
             self._persistence.save_file_entries(path, entries, metadata)
 
-        # Invalidate cache
-        self._cache.invalidate()
-
-        # Trigger background analysis recompute
-        self._schedule_analysis_recompute()
+        self._invalidate_cache_and_recompute()
 
     def _remove_file(self, path: str) -> None:
         """Remove a file from the index and persistence."""
@@ -255,11 +259,7 @@ class EventDrivenIndex:
         if self._persistence is not None:
             self._persistence.delete_file_entries(path)
 
-        # Invalidate cache
-        self._cache.invalidate()
-
-        # Trigger background analysis recompute
-        self._schedule_analysis_recompute()
+        self._invalidate_cache_and_recompute()
 
     # =========================================================================
     # Analysis Cache
@@ -276,6 +276,16 @@ class EventDrivenIndex:
                 daemon=True,
             )
             self._bg_thread.start()
+
+    def _invalidate_cache_and_recompute(self) -> None:
+        """Invalidate analysis cache and schedule recomputation."""
+        self._cache.invalidate()
+        self._schedule_analysis_recompute()
+
+    def _maybe_start_watching(self, path: Path) -> None:
+        """Start file watching when watcher support is enabled."""
+        if self._watch_enabled:
+            self.start_watching(path)
 
     def _recompute_analysis(self) -> None:
         """Recompute analysis in background thread."""
@@ -342,7 +352,7 @@ class EventDrivenIndex:
         path = Path(path).resolve()
 
         # Check for cloud-synced folders and warn
-        is_cloud, service = is_cloud_synced_path(path)
+        is_cloud, _ = is_cloud_synced_path(path)
         if is_cloud and self._watch_enabled:
             check_and_warn_cloud_sync(path, logger)
 
@@ -384,13 +394,8 @@ class EventDrivenIndex:
                 f"Incremental update: {added} added, {updated} updated, {unchanged} unchanged"
             )
 
-            # Start watching if enabled
-            if self._watch_enabled:
-                self.start_watching(path)
-
-            # Trigger cache recompute
-            self._cache.invalidate()
-            self._schedule_analysis_recompute()
+            self._maybe_start_watching(path)
+            self._invalidate_cache_and_recompute()
 
             return len(self.index.entries)
 
@@ -402,44 +407,63 @@ class EventDrivenIndex:
         if self._persistence is not None:
             self._persistence.save_full_index(self.index)
 
-        # Start watching if enabled
-        if self._watch_enabled:
-            self.start_watching(path)
-
-        # Trigger cache recompute
-        self._cache.invalidate()
-        self._schedule_analysis_recompute()
+        self._maybe_start_watching(path)
+        self._invalidate_cache_and_recompute()
 
         logger.info(f"Indexed {len(self.index.entries)} entries from {path}")
         return len(self.index.entries)
 
     def suppress(self, wl_hash: str, reason: str | None = None) -> bool:
         """Suppress a hash and persist."""
-        success = self.index.suppress(wl_hash, reason)
-
-        if success and self._persistence is not None:
-            info = self.index.get_suppression_info(wl_hash)
-            if info:
-                self._persistence.save_suppression(info)
-
-        # Invalidate cache (suppressions affect analysis)
-        self._cache.invalidate()
-        self._schedule_analysis_recompute()
-
-        return success
+        return self._toggle_suppression(wl_hash, suppress=True, reason=reason)
 
     def unsuppress(self, wl_hash: str) -> bool:
         """Unsuppress a hash and persist."""
-        success = self.index.unsuppress(wl_hash)
+        return self._toggle_suppression(wl_hash, suppress=False)
 
-        if success and self._persistence is not None:
-            self._persistence.delete_suppression(wl_hash)
+    def _persist_suppression(self, wl_hash: str) -> None:
+        """Persist a single suppression if persistence is enabled."""
+        if self._persistence is None:
+            return
+        info = self.index.get_suppression_info(wl_hash)
+        if info:
+            self._persistence.save_suppression(info)
 
-        # Invalidate cache
-        self._cache.invalidate()
-        self._schedule_analysis_recompute()
+    def _persist_unsuppression(self, wl_hash: str) -> None:
+        """Persist a single unsuppression if persistence is enabled."""
+        if self._persistence is None:
+            return
+        self._persistence.delete_suppression(wl_hash)
 
-        return success
+    def _toggle_suppression(self, wl_hash: str, suppress: bool, reason: str | None = None) -> bool:
+        """Toggle suppression for one hash and persist/cache-update on change."""
+        success = (
+            self.index.suppress(wl_hash, reason) if suppress else self.index.unsuppress(wl_hash)
+        )
+        if not success:
+            return False
+
+        if suppress:
+            self._persist_suppression(wl_hash)
+        else:
+            self._persist_unsuppression(wl_hash)
+
+        self._invalidate_cache_and_recompute()
+        return True
+
+    def _run_batch_hash_operation(
+        self,
+        wl_hashes: list[str],
+        operation: Callable[[str], bool],
+        persist_change: Callable[[str], None],
+    ) -> tuple[list[str], list[str]]:
+        """Run a batch hash operation, persist changed hashes, and refresh cache once."""
+        changed, not_found = batch_hash_operation(wl_hashes, operation)
+        for wl_hash in changed:
+            persist_change(wl_hash)
+        if changed:
+            self._invalidate_cache_and_recompute()
+        return changed, not_found
 
     def unsuppress_batch(self, wl_hashes: list[str]) -> tuple[list[str], list[str]]:
         """Unsuppress multiple hashes and persist. Returns (unsuppressed, not_found).
@@ -447,20 +471,11 @@ class EventDrivenIndex:
         Optimized: does all in-memory work first, then batch-persists, then
         invalidates cache and recomputes once.
         """
-        # In-memory work (no individual persistence)
-        changed, not_found = batch_hash_operation(wl_hashes, self.index.unsuppress)
-
-        # Batch-persist all changes
-        if changed and self._persistence is not None:
-            for wl_hash in changed:
-                self._persistence.delete_suppression(wl_hash)
-
-        # Invalidate cache and recompute once
-        if changed:
-            self._cache.invalidate()
-            self._schedule_analysis_recompute()
-
-        return changed, not_found
+        return self._run_batch_hash_operation(
+            wl_hashes=wl_hashes,
+            operation=self.index.unsuppress,
+            persist_change=self._persist_unsuppression,
+        )
 
     def suppress_batch(
         self, wl_hashes: list[str], reason: str | None = None
@@ -470,24 +485,11 @@ class EventDrivenIndex:
         Optimized: does all in-memory work first, then batch-persists, then
         invalidates cache and recomputes once.
         """
-        # In-memory work (no individual persistence)
-        changed, not_found = batch_hash_operation(
-            wl_hashes, lambda h: self.index.suppress(h, reason)
+        return self._run_batch_hash_operation(
+            wl_hashes=wl_hashes,
+            operation=lambda h: self.index.suppress(h, reason),
+            persist_change=self._persist_suppression,
         )
-
-        # Batch-persist all changes
-        if changed and self._persistence is not None:
-            for wl_hash in changed:
-                info = self.index.get_suppression_info(wl_hash)
-                if info:
-                    self._persistence.save_suppression(info)
-
-        # Invalidate cache and recompute once
-        if changed:
-            self._cache.invalidate()
-            self._schedule_analysis_recompute()
-
-        return changed, not_found
 
     # =========================================================================
     # Stats

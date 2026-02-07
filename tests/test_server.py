@@ -1,6 +1,7 @@
 """Tests for the consolidated MCP server tools."""
 
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -167,11 +168,14 @@ class TestResolveDockerPath:
 
 def _get_analyze_details(tools, result):
     """Read full analyze details from report file if it exists, else inline text."""
-    if ".metadata_astrograph/analysis_report.txt" not in result.text:
+    if ".metadata_astrograph/" not in result.text:
+        return result.text
+    match = re.search(r"Details: \.metadata_astrograph/([^\s]+)", result.text)
+    if not match:
         return result.text
     indexed = Path(tools._last_indexed_path).resolve()
     base = indexed.parent if not indexed.is_dir() else indexed
-    report = base / PERSISTENCE_DIR / "analysis_report.txt"
+    report = base / PERSISTENCE_DIR / match.group(1)
     return report.read_text() if report.exists() else result.text
 
 
@@ -238,7 +242,14 @@ class TestIndexCodebase:
         tools.index_codebase(sample_python_file)
         second_result = tools.analyze()
 
-        assert first_result.text == second_result.text
+        def norm(text: str) -> str:
+            return re.sub(
+                r"Details: \.metadata_astrograph/analysis_report_\d{8}_\d{6}_\d+\.txt",
+                "Details: .metadata_astrograph/analysis_report_<timestamp>.txt",
+                text,
+            )
+
+        assert norm(first_result.text) == norm(second_result.text)
 
 
 class TestAnalyze:

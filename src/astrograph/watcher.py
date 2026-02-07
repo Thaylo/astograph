@@ -29,6 +29,32 @@ def _should_skip_path(path: Path) -> bool:
     return any(_is_skip_dir(part) for part in path.parts)
 
 
+def _apply_and_clear(items: dict[str, Any], action: Callable[[Any], None]) -> None:
+    """Apply an action to all values and clear the mapping."""
+    for item in items.values():
+        action(item)
+    items.clear()
+
+
+def _apply_and_clear_locked(
+    lock: Any, items: dict[str, Any], action: Callable[[Any], None]
+) -> None:
+    """Apply action to all values and clear mapping while holding lock."""
+    with lock:
+        _apply_and_clear(items, action)
+
+
+def _make_event_handler(
+    event_type: str, callback_attr: str
+) -> Callable[[PythonFileHandler, FileSystemEvent], None]:
+    """Build a thin watchdog event method bound to a callback attribute."""
+
+    def _handler(self: PythonFileHandler, event: FileSystemEvent) -> None:
+        self._handle_event(event, event_type, getattr(self, callback_attr))
+
+    return _handler
+
+
 class DebouncedCallback:
     """
     Debounces rapid file system events.
@@ -68,10 +94,7 @@ class DebouncedCallback:
 
     def cancel_all(self) -> None:
         """Cancel all pending callbacks."""
-        with self._lock:
-            for timer in self._pending.values():
-                timer.cancel()
-            self._pending.clear()
+        _apply_and_clear_locked(self._lock, self._pending, lambda timer: timer.cancel())
 
 
 class PythonFileHandler(FileSystemEventHandler):
@@ -107,14 +130,9 @@ class PythonFileHandler(FileSystemEventHandler):
             logger.debug(f"File {event_type}: {src}")
             handler(src)
 
-    def on_modified(self, event: FileSystemEvent) -> None:
-        self._handle_event(event, "modified", self._on_modified)
-
-    def on_created(self, event: FileSystemEvent) -> None:
-        self._handle_event(event, "created", self._on_created)
-
-    def on_deleted(self, event: FileSystemEvent) -> None:
-        self._handle_event(event, "deleted", self._on_deleted)
+    on_modified = _make_event_handler("modified", "_on_modified")
+    on_created = _make_event_handler("created", "_on_created")
+    on_deleted = _make_event_handler("deleted", "_on_deleted")
 
     def on_moved(self, event: FileSystemEvent) -> None:
         if event.is_directory:
@@ -263,10 +281,7 @@ class FileWatcherPool:
 
     def stop_all(self) -> None:
         """Stop all watchers."""
-        with self._lock:
-            for watcher in self._watchers.values():
-                watcher.stop()
-            self._watchers.clear()
+        _apply_and_clear_locked(self._lock, self._watchers, lambda watcher: watcher.stop())
 
     def __enter__(self) -> FileWatcherPool:
         return self

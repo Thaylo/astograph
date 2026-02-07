@@ -16,6 +16,8 @@ import logging
 import os
 import shutil
 import threading
+from datetime import datetime
+from functools import partialmethod
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Persistence directory name for cached index
 PERSISTENCE_DIR = ".metadata_astrograph"
+ANALYSIS_REPORT_LATEST = "analysis_report.txt"
 
 
 def _get_persistence_path(indexed_path: str) -> Path:
@@ -182,6 +185,10 @@ class CodeStructureTools:
         if not self.index.entries:
             return ToolResult("No code indexed. Call index_codebase first.")
         return None
+
+    def _active_index(self) -> CodeStructureIndex | EventDrivenIndex:
+        """Return event-driven index when enabled, otherwise in-memory index."""
+        return self._event_driven_index if self._event_driven_index else self.index
 
     def _check_invalidated_suppressions(self) -> str:
         """
@@ -392,15 +399,22 @@ class CodeStructureTools:
     def _write_analysis_report(self, content: str) -> Path | None:
         """Write full analysis report to persistence directory.
 
-        Returns the file path on success, None on failure.
+        Writes both:
+        - timestamped archive file (returned path)
+        - stable latest file (analysis_report.txt) for backward compatibility
+
+        Returns the timestamped file path on success, None on failure.
         """
         if self._last_indexed_path is None:
             return None
         try:
             persistence_path = _get_persistence_path(self._last_indexed_path)
             persistence_path.mkdir(exist_ok=True)
-            report_file = persistence_path / "analysis_report.txt"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            report_file = persistence_path / f"analysis_report_{timestamp}.txt"
             report_file.write_text(content)
+            latest_report_file = persistence_path / ANALYSIS_REPORT_LATEST
+            latest_report_file.write_text(content)
             return report_file
         except OSError:
             return None
@@ -410,7 +424,7 @@ class CodeStructureTools:
         if self._last_indexed_path is None:
             return
         try:
-            report_file = _get_persistence_path(self._last_indexed_path) / "analysis_report.txt"
+            report_file = _get_persistence_path(self._last_indexed_path) / ANALYSIS_REPORT_LATEST
             report_file.unlink(missing_ok=True)
         except OSError:
             pass
@@ -621,8 +635,9 @@ class CodeStructureTools:
                 summary_parts.append(f"+ {suppressed_count} suppressed.")
             line_count_report = full_output.count("\n") + 1
             summary_parts.append(
-                f"Details: {PERSISTENCE_DIR}/analysis_report.txt ({line_count_report} lines)"
+                f"Details: {PERSISTENCE_DIR}/{report_path.name} ({line_count_report} lines)"
             )
+            summary_parts.append(f"Latest: {PERSISTENCE_DIR}/{ANALYSIS_REPORT_LATEST}")
             summary_parts.append("Read the file to see locations and suppress commands.")
             return ToolResult(invalidation_warning + staleness_warning + "\n".join(summary_parts))
 
@@ -712,9 +727,7 @@ class CodeStructureTools:
             ]
 
         # Toggle suppression state using event-driven index if available (persists to SQLite)
-        active_index: CodeStructureIndex | EventDrivenIndex = (
-            self._event_driven_index if self._event_driven_index else self.index
-        )
+        active_index = self._active_index()
         success = active_index.suppress(wl_hash) if suppress else active_index.unsuppress(wl_hash)
 
         if suppress:
@@ -728,27 +741,15 @@ class CodeStructureTools:
 
         return ToolResult(prefix + (success_msg if success else failure_msg))
 
-    def suppress(self, wl_hash: str) -> ToolResult:
-        """
-        Suppress a duplicate group by its WL hash.
-
-        Use this to mute idiomatic patterns or acceptable duplications
-        that don't need to be refactored.
-        """
-        return self._toggle_suppression(wl_hash, suppress=True)
-
-    def unsuppress(self, wl_hash: str) -> ToolResult:
-        """Remove a hash from the suppressed set."""
-        return self._toggle_suppression(wl_hash, suppress=False)
+    suppress = partialmethod(_toggle_suppression, suppress=True)
+    unsuppress = partialmethod(_toggle_suppression, suppress=False)
 
     def _batch_toggle_suppression(self, wl_hashes: list[str], suppress: bool) -> ToolResult:
         """Batch suppress or unsuppress hashes."""
         if error := self._require_index():
             return error
         prefix = self._check_invalidated_suppressions()
-        active_index: CodeStructureIndex | EventDrivenIndex = (
-            self._event_driven_index if self._event_driven_index else self.index
-        )
+        active_index = self._active_index()
         action = "suppress" if suppress else "unsuppress"
         method = getattr(active_index, f"{action}_batch")
         changed, not_found = method(wl_hashes)
@@ -769,13 +770,8 @@ class CodeStructureTools:
             parts.append("Run analyze to refresh.")
         return ToolResult(prefix + " ".join(parts))
 
-    def suppress_batch(self, wl_hashes: list[str]) -> ToolResult:
-        """Suppress multiple duplicate groups by WL hash list."""
-        return self._batch_toggle_suppression(wl_hashes, suppress=True)
-
-    def unsuppress_batch(self, wl_hashes: list[str]) -> ToolResult:
-        """Unsuppress multiple hashes."""
-        return self._batch_toggle_suppression(wl_hashes, suppress=False)
+    suppress_batch = partialmethod(_batch_toggle_suppression, suppress=True)
+    unsuppress_batch = partialmethod(_batch_toggle_suppression, suppress=False)
 
     def list_suppressions(self) -> ToolResult:
         """List all suppressed hashes."""

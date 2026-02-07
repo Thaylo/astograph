@@ -128,6 +128,26 @@ class TestIndexEntry:
 class TestCodeStructureIndexExtended:
     """Extended tests for CodeStructureIndex."""
 
+    @staticmethod
+    def _add_simple_function_units(
+        index: CodeStructureIndex,
+        count: int,
+        name_prefix: str,
+        code: str,
+        file_prefix: str,
+    ) -> None:
+        for i in range(count):
+            index.add_code_unit(
+                CodeUnit(
+                    name=f"{name_prefix}_{i}",
+                    code=code,
+                    file_path=f"{file_prefix}_{i}.py",
+                    line_start=1,
+                    line_end=1,
+                    unit_type="function",
+                )
+            )
+
     @pytest.mark.parametrize(
         "method,path",
         [
@@ -301,27 +321,8 @@ class TestCodeStructureIndexExtended:
         index = CodeStructureIndex()
 
         # Add functions with different duplication counts
-        for i in range(3):
-            unit = CodeUnit(
-                name=f"func_a_{i}",
-                code="def f(x): return x + 1",
-                file_path=f"file_{i}.py",
-                line_start=1,
-                line_end=1,
-                unit_type="function",
-            )
-            index.add_code_unit(unit)
-
-        for i in range(2):
-            unit = CodeUnit(
-                name=f"func_b_{i}",
-                code="def g(y): return y * 2",
-                file_path=f"other_{i}.py",
-                line_start=1,
-                line_end=1,
-                unit_type="function",
-            )
-            index.add_code_unit(unit)
+        self._add_simple_function_units(index, 3, "func_a", "def f(x): return x + 1", "file")
+        self._add_simple_function_units(index, 2, "func_b", "def g(y): return y * 2", "other")
 
         groups = index.find_all_duplicates(min_node_count=3)
 
@@ -1030,6 +1031,35 @@ def func2():
         assert len(index.get_suppressed()) == 1
         index.clear_suppressions()
         assert len(index.get_suppressed()) == 0
+
+    def test_suppression_methods_use_lock(self, monkeypatch):
+        """Suppression accessors/mutators should acquire the index lock."""
+
+        class SpyLock:
+            def __init__(self) -> None:
+                self.enter_count = 0
+
+            def __enter__(self) -> "SpyLock":
+                self.enter_count += 1
+                return self
+
+            def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+                return None
+
+        index = CodeStructureIndex()
+        index.suppressed_hashes.add("abc")
+
+        spy_lock = SpyLock()
+        monkeypatch.setattr(index, "_lock", spy_lock)
+
+        assert index.get_suppressed() == ["abc"]
+        assert index.get_suppression_info("missing") is None
+
+        index.clear_suppressions()
+
+        assert index.get_suppressed() == []
+        assert index.get_suppression_info("abc") is None
+        assert spy_lock.enter_count == 5
 
     def test_clear_preserves_suppressions(self):
         """index.clear() should preserve suppressions."""

@@ -17,6 +17,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
+from .context import CloseOnExitMixin, StartCloseOnExitMixin
 from .index import _is_skip_dir
 
 HAS_WATCHDOG = True
@@ -123,31 +124,28 @@ class PythonFileHandler(FileSystemEventHandler):
 
     def _handle_event(self, event: FileSystemEvent, event_type: str, handler: Callable) -> None:
         """Generic event handler to reduce duplication."""
-        if event.is_directory:
-            return
-        src = str(event.src_path)
-        if self._is_python_file(src):
-            logger.debug(f"File {event_type}: {src}")
-            handler(src)
+        if not event.is_directory:
+            src = str(event.src_path)
+            if self._is_python_file(src):
+                logger.debug(f"File {event_type}: {src}")
+                handler(src)
 
     on_modified = _make_event_handler("modified", "_on_modified")
     on_created = _make_event_handler("created", "_on_created")
     on_deleted = _make_event_handler("deleted", "_on_deleted")
 
     def on_moved(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
+        if not event.is_directory:
+            # Handle as delete + create
+            src = str(event.src_path)
+            if self._is_python_file(src):
+                logger.debug(f"File moved from: {src}")
+                self._on_deleted(src)
 
-        # Handle as delete + create
-        src = str(event.src_path)
-        if self._is_python_file(src):
-            logger.debug(f"File moved from: {src}")
-            self._on_deleted(src)
-
-        dest = str(getattr(event, "dest_path", ""))
-        if dest and self._is_python_file(dest):
-            logger.debug(f"File moved to: {dest}")
-            self._on_created(dest)
+            dest = str(getattr(event, "dest_path", ""))
+            if dest and self._is_python_file(dest):
+                logger.debug(f"File moved to: {dest}")
+                self._on_created(dest)
 
     def cancel_pending(self) -> None:
         """Cancel pending debounced callbacks."""
@@ -155,7 +153,7 @@ class PythonFileHandler(FileSystemEventHandler):
         self._on_created.cancel_all()
 
 
-class FileWatcher:
+class FileWatcher(StartCloseOnExitMixin):
     """
     Watches a directory for Python file changes.
 
@@ -194,6 +192,7 @@ class FileWatcher:
     def start(self) -> None:
         """Start watching for file changes."""
         if self._started:
+            logger.debug(f"Already watching: {self.root_path}")
             return
 
         if not self.root_path.is_dir():
@@ -220,20 +219,15 @@ class FileWatcher:
         self._started = False
         logger.info(f"Stopped watching: {self.root_path}")
 
+    close = stop
+
     @property
     def is_watching(self) -> bool:
         """Check if the watcher is active."""
         return self._started
 
-    def __enter__(self) -> FileWatcher:
-        self.start()
-        return self
 
-    def __exit__(self, *args: Any) -> None:
-        self.stop()
-
-
-class FileWatcherPool:
+class FileWatcherPool(CloseOnExitMixin):
     """
     Manages multiple file watchers for different directories.
 
@@ -281,10 +275,9 @@ class FileWatcherPool:
 
     def stop_all(self) -> None:
         """Stop all watchers."""
-        _apply_and_clear_locked(self._lock, self._watchers, lambda watcher: watcher.stop())
+        with self._lock:
+            for watcher in self._watchers.values():
+                watcher.stop()
+            self._watchers.clear()
 
-    def __enter__(self) -> FileWatcherPool:
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        self.stop_all()
+    close = stop_all

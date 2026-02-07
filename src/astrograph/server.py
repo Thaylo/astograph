@@ -224,13 +224,11 @@ def create_server() -> Server:
         result = _tools.call_tool(internal_name, arguments)
         return [TextContent(type="text", text=result.text)]
 
-    @server.list_resources()
     async def list_resources() -> list:
         return []
 
-    @server.list_resource_templates()
-    async def list_resource_templates() -> list:
-        return []
+    server.list_resources()(list_resources)
+    server.list_resource_templates()(list_resources)
 
     return server
 

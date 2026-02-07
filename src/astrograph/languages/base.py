@@ -105,7 +105,7 @@ class LanguagePlugin(Protocol):
     @property
     def skip_dirs(self) -> frozenset[str]:
         """Language-specific directories to skip during indexing."""
-        ...
+        raise NotImplementedError
 
     def extract_code_units(
         self,
@@ -162,7 +162,7 @@ class BaseLanguagePlugin:
 
     @property
     def skip_dirs(self) -> frozenset[str]:
-        raise NotImplementedError
+        raise NotImplementedError("Language plugins must define skip_dirs")
 
     def extract_code_units(
         self,

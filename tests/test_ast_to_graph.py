@@ -117,8 +117,7 @@ class MyClass:
 
         methods = [u for u in units if u.unit_type == "method"]
         assert len(methods) == 2
-        for method in methods:
-            assert method.parent_name == "MyClass"
+        assert all(method.parent_name == "MyClass" for method in methods)
 
     def test_line_numbers(self):
         """Line numbers should be correct."""

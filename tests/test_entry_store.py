@@ -33,6 +33,11 @@ def _make_index_with_entries(count: int) -> tuple[CodeStructureIndex, list[str]]
     return index, entry_ids
 
 
+def _populate_store(store: EntryStore, index: CodeStructureIndex, entry_ids: list[str]) -> None:
+    for eid in entry_ids:
+        store[eid] = index.entries[eid]
+
+
 class TestEntryStoreLRU:
     """Tests for LRU eviction behavior."""
 
@@ -50,8 +55,7 @@ class TestEntryStoreLRU:
             store.set_persistence(persistence)
 
             # Populate store
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             # Cache should be trimmed to max_resident
             assert store.resident_count <= 3
@@ -66,8 +70,7 @@ class TestEntryStoreLRU:
 
         index, entry_ids = _make_index_with_entries(10)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         # No eviction without persistence
         assert store.resident_count == len(entry_ids)
@@ -86,8 +89,7 @@ class TestEntryStoreLRU:
             store.set_persistence(persistence)
 
             # Populate store (will evict oldest)
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             # Access an evicted entry - should reload from SQLite
             first_eid = entry_ids[0]
@@ -119,8 +121,7 @@ class TestEntryStoreHotMetadata:
             store = EntryStore(max_resident=3)
             store.set_persistence(persistence)
 
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             # All entries should have node_count available via hot metadata
             for eid in entry_ids:
@@ -135,8 +136,7 @@ class TestEntryStoreHotMetadata:
         index, entry_ids = _make_index_with_entries(5)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         for eid in entry_ids:
             hh = store.get_hierarchy_hashes(eid)
@@ -148,8 +148,7 @@ class TestEntryStoreHotMetadata:
         index, entry_ids = _make_index_with_entries(3)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         for eid in entry_ids:
             meta = store.get_meta(eid)
@@ -158,20 +157,14 @@ class TestEntryStoreHotMetadata:
             assert meta.wl_hash
             assert meta.unit_type in ("function", "class", "block")
 
-    def test_get_node_count_missing(self):
-        """get_node_count returns None for missing entries."""
+    @pytest.mark.parametrize(
+        "method_name",
+        ["get_node_count", "get_hierarchy_hashes", "get_meta"],
+    )
+    def test_missing_lookup_methods_return_none(self, method_name):
+        """Lookup methods return None for missing entries."""
         store = EntryStore(max_resident=10)
-        assert store.get_node_count("nonexistent") is None
-
-    def test_get_hierarchy_hashes_missing(self):
-        """get_hierarchy_hashes returns None for missing entries."""
-        store = EntryStore(max_resident=10)
-        assert store.get_hierarchy_hashes("nonexistent") is None
-
-    def test_get_meta_missing(self):
-        """get_meta returns None for missing entries."""
-        store = EntryStore(max_resident=10)
-        assert store.get_meta("nonexistent") is None
+        assert getattr(store, method_name)("nonexistent") is None
 
 
 class TestEntryStoreBulkLoad:
@@ -190,8 +183,7 @@ class TestEntryStoreBulkLoad:
             store.set_persistence(persistence)
 
             with store.bulk_load():
-                for eid in entry_ids:
-                    store[eid] = index.entries[eid]
+                _populate_store(store, index, entry_ids)
 
                 # During bulk load, no eviction
                 assert store.resident_count == len(entry_ids)
@@ -206,13 +198,16 @@ class TestEntryStoreBulkLoad:
 class TestEntryStoreDictInterface:
     """Tests for dict-compatible interface."""
 
+    @staticmethod
+    def _assert_contains_all(store: EntryStore, entry_ids: list[str]) -> None:
+        assert all(eid in store for eid in entry_ids)
+
     def test_clear(self):
         """clear() removes all entries from cache, metadata, and all_ids."""
         index, entry_ids = _make_index_with_entries(5)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         assert len(store) > 0
         store.clear()
@@ -237,11 +232,9 @@ class TestEntryStoreDictInterface:
         index, entry_ids = _make_index_with_entries(3)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
-        for eid in entry_ids:
-            assert eid in store
+        self._assert_contains_all(store, entry_ids)
 
     def test_contains_evicted(self):
         """__contains__ returns True for evicted entries."""
@@ -255,12 +248,10 @@ class TestEntryStoreDictInterface:
             store = EntryStore(max_resident=3)
             store.set_persistence(persistence)
 
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             # All entries should be "in" the store even if evicted from cache
-            for eid in entry_ids:
-                assert eid in store
+            self._assert_contains_all(store, entry_ids)
 
             persistence.close()
 
@@ -274,8 +265,7 @@ class TestEntryStoreDictInterface:
         index, entry_ids = _make_index_with_entries(3)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         eid_to_remove = entry_ids[0]
         del store[eid_to_remove]
@@ -302,8 +292,7 @@ class TestEntryStoreDictInterface:
             store = EntryStore(max_resident=3)
             store.set_persistence(persistence)
 
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             all_items = list(store.items())
             assert len(all_items) == len(entry_ids)
@@ -325,8 +314,7 @@ class TestEntryStoreDictInterface:
             store = EntryStore(max_resident=3)
             store.set_persistence(persistence)
 
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             all_values = list(store.values())
             assert len(all_values) == len(entry_ids)
@@ -338,8 +326,7 @@ class TestEntryStoreDictInterface:
         index, entry_ids = _make_index_with_entries(5)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         iterated = set(store)
         assert iterated == set(entry_ids)
@@ -349,8 +336,7 @@ class TestEntryStoreDictInterface:
         index, entry_ids = _make_index_with_entries(3)
         store = EntryStore(max_resident=100)
 
-        for eid in entry_ids:
-            store[eid] = index.entries[eid]
+        _populate_store(store, index, entry_ids)
 
         eid = entry_ids[0]
         entry = store.pop(eid)
@@ -366,8 +352,7 @@ class TestEntryStoreDictInterface:
     def test_pop_missing_raises(self):
         """pop() raises KeyError for missing entries without default."""
         store = EntryStore(max_resident=10)
-        with pytest.raises(KeyError):
-            store.pop("nonexistent")
+        pytest.raises(KeyError, store.pop, "nonexistent")
 
 
 class TestEntryStoreEnvironment:
@@ -414,8 +399,7 @@ class TestEntryStoreEnvironment:
             store = EntryStore(max_resident=0)
             store.set_persistence(persistence)
 
-            for eid in entry_ids:
-                store[eid] = index.entries[eid]
+            _populate_store(store, index, entry_ids)
 
             # With max_resident=0, no eviction even with persistence
             assert store.resident_count == len(entry_ids)

@@ -33,9 +33,10 @@ class _StdioReader:
         while len(self._buf) < min_bytes:
             need = max(1, min_bytes - len(self._buf))
             chunk = await self._stream.read(need)
-            if not chunk:
-                raise EOFError("stdin closed")
-            self._buf += chunk
+            if chunk:
+                self._buf += chunk
+                continue
+            raise EOFError("stdin closed")
 
     async def _detect_mode(self) -> str:
         """Detect framing mode for the next message in the buffer."""
@@ -50,13 +51,14 @@ class _StdioReader:
             self._buf = stripped
             first = stripped[:1]
             # JSON-RPC newline mode always starts with a JSON value (object/array).
-            if first in (b"{", b"["):
-                return "newline"
-
-            # Header-framed mode may arrive in partial chunks; decide on the
-            # first non-whitespace byte to avoid waiting for full header text.
-            if first in (b"C", b"c"):
-                return "framed"
+            mode = {
+                b"{": "newline",
+                b"[": "newline",
+                b"C": "framed",
+                b"c": "framed",
+            }.get(first)
+            if mode is not None:
+                return mode
 
             # Fallback: if it looks like an HTTP-style header line, treat as framed.
             first_line = stripped.split(b"\n", 1)[0]
@@ -98,13 +100,12 @@ class _StdioReader:
         header_end = -1
         delim_len = 0
         while True:
-            if b"\r\n\r\n" in self._buf:
-                header_end = self._buf.index(b"\r\n\r\n")
-                delim_len = 4
-                break
-            if b"\n\n" in self._buf:
-                header_end = self._buf.index(b"\n\n")
-                delim_len = 2
+            for delimiter, delimiter_len in ((b"\r\n\r\n", 4), (b"\n\n", 2)):
+                if delimiter in self._buf:
+                    header_end = self._buf.index(delimiter)
+                    delim_len = delimiter_len
+                    break
+            if header_end >= 0:
                 break
             # Force progress even when buffer already has partial header bytes.
             await self._fill(len(self._buf) + 1)

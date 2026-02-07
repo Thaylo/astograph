@@ -29,6 +29,30 @@ def _make_initialize_request(id: int = 1) -> dict:
     }
 
 
+async def _run_roundtrip(request: bytes) -> bytes:
+    """Run dual_stdio_server with one request/response and return stdout bytes."""
+    fake_stdin = io.BytesIO(request)
+    fake_stdout = io.BytesIO()
+
+    with patch.object(sys, "stdin", type("", (), {"buffer": fake_stdin})()), patch.object(
+        sys, "stdout", type("", (), {"buffer": fake_stdout})()
+    ):
+        async with dual_stdio_server() as (read_stream, write_stream):
+            msg = await read_stream.receive()
+            assert isinstance(msg, SessionMessage)
+
+            response = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"protocolVersion": "2024-11-05", "capabilities": {}},
+            }
+            response_msg = SessionMessage(message=JSONRPCMessage.model_validate(response))
+            await write_stream.send(response_msg)
+            await anyio.sleep(0.05)
+
+    return fake_stdout.getvalue()
+
+
 class _FakeStream:
     """Fake async file-like stream for testing."""
 
@@ -60,11 +84,19 @@ class TestStdioReader:
         assert parsed["method"] == "initialize"
 
     @pytest.mark.asyncio
-    async def test_framed_mode_detection(self):
-        """First byte 'C' (Content-Length) should trigger framed mode."""
+    @pytest.mark.parametrize(
+        ("header_name", "delimiter"),
+        [
+            ("Content-Length", "\r\n\r\n"),
+            ("content-length", "\r\n\r\n"),
+            ("Content-Length", "\n\n"),
+        ],
+    )
+    async def test_framed_mode_detection_variants(self, header_name, delimiter):
+        """Content-Length framed variants should trigger framed mode."""
         body = json.dumps(_make_initialize_request()).encode("utf-8")
-        msg = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
-        reader = _StdioReader(_FakeStream(msg))
+        framed = f"{header_name}: {len(body)}{delimiter}".encode("ascii") + body
+        reader = _StdioReader(_FakeStream(framed))
         data = await reader.read_message()
         assert reader.mode == "framed"
         parsed = json.loads(data)
@@ -82,16 +114,6 @@ class TestStdioReader:
         assert parsed["method"] == "initialize"
 
     @pytest.mark.asyncio
-    async def test_framed_mode_detection_lowercase_header(self):
-        """Lowercase content-length header should still trigger framed mode."""
-        body = json.dumps(_make_initialize_request()).encode("utf-8")
-        msg = f"content-length: {len(body)}\r\n\r\n".encode("ascii") + body
-        reader = _StdioReader(_FakeStream(msg))
-        data = await reader.read_message()
-        assert reader.mode == "framed"
-        parsed = json.loads(data)
-        assert parsed["method"] == "initialize"
-
     @pytest.mark.asyncio
     async def test_auto_detect_with_leading_whitespace(self):
         """Whitespace before '{' should still detect newline mode."""
@@ -120,16 +142,6 @@ class TestStdioReader:
         assert json.loads(d2)["id"] == 2
 
     @pytest.mark.asyncio
-    async def test_framed_mode_with_lf_header_delimiter(self):
-        """Framed mode should also accept LF-only header delimiter."""
-        body = json.dumps(_make_initialize_request()).encode("utf-8")
-        msg = f"Content-Length: {len(body)}\n\n".encode("ascii") + body
-        reader = _StdioReader(_FakeStream(msg))
-        data = await reader.read_message()
-        assert reader.mode == "framed"
-        parsed = json.loads(data)
-        assert parsed["method"] == "initialize"
-
     @pytest.mark.asyncio
     async def test_newline_mode_multiple_messages(self):
         """Multiple newline messages should be read correctly."""
@@ -197,31 +209,9 @@ class TestDualStdioServer:
     async def test_newline_mode_roundtrip(self):
         """Pipe newline-delimited JSON-RPC → verify response is newline-delimited."""
         request = json.dumps(_make_initialize_request()).encode("utf-8") + b"\n"
-        fake_stdin = io.BytesIO(request)
-        fake_stdout = io.BytesIO()
-
-        with patch.object(sys, "stdin", type("", (), {"buffer": fake_stdin})()), patch.object(
-            sys, "stdout", type("", (), {"buffer": fake_stdout})()
-        ):
-            async with dual_stdio_server() as (read_stream, write_stream):
-                # Read the incoming message
-                msg = await read_stream.receive()
-                assert isinstance(msg, SessionMessage)
-
-                # Send a response back
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "result": {"protocolVersion": "2024-11-05", "capabilities": {}},
-                }
-                response_msg = SessionMessage(message=JSONRPCMessage.model_validate(response))
-                await write_stream.send(response_msg)
-
-                # Give writer time to flush
-                await anyio.sleep(0.05)
+        output = await _run_roundtrip(request)
 
         # Verify output is newline-delimited (no Content-Length header)
-        output = fake_stdout.getvalue()
         assert output.endswith(b"\n")
         assert b"Content-Length" not in output
         parsed = json.loads(output.strip())
@@ -232,28 +222,9 @@ class TestDualStdioServer:
         """Pipe Content-Length framed JSON-RPC → verify response has Content-Length header."""
         body = json.dumps(_make_initialize_request()).encode("utf-8")
         request = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
-        fake_stdin = io.BytesIO(request)
-        fake_stdout = io.BytesIO()
-
-        with patch.object(sys, "stdin", type("", (), {"buffer": fake_stdin})()), patch.object(
-            sys, "stdout", type("", (), {"buffer": fake_stdout})()
-        ):
-            async with dual_stdio_server() as (read_stream, write_stream):
-                msg = await read_stream.receive()
-                assert isinstance(msg, SessionMessage)
-
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "result": {"protocolVersion": "2024-11-05", "capabilities": {}},
-                }
-                response_msg = SessionMessage(message=JSONRPCMessage.model_validate(response))
-                await write_stream.send(response_msg)
-
-                await anyio.sleep(0.05)
+        output = await _run_roundtrip(request)
 
         # Verify output uses Content-Length framing
-        output = fake_stdout.getvalue()
         assert b"Content-Length:" in output
         # Parse: Content-Length: N\r\n\r\n<body>
         header_end = output.index(b"\r\n\r\n")

@@ -3,12 +3,35 @@
 import os
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
 from astrograph.index import CodeStructureIndex
 from astrograph.persistence import SQLitePersistence
 from astrograph.tools import CodeStructureTools
+
+
+def _event_appender(events, event_type):
+    """Build a callback that records (event_type, path) tuples."""
+
+    def _callback(path):
+        events.append((event_type, path))
+
+    return _callback
+
+
+def _path_appender(paths):
+    """Build a callback that records raw paths."""
+    return paths.append
+
+
+def _skip_if_watchdog_missing() -> None:
+    from astrograph.watcher import HAS_WATCHDOG
+
+    if HAS_WATCHDOG:
+        return
+    pytest.skip("watchdog not installed")
 
 
 class TestSQLitePersistence:
@@ -71,8 +94,7 @@ def transform_data(data):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create and index first file
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             index.index_file(file1)
             metadata = index.file_metadata[file1]
@@ -95,8 +117,7 @@ def transform_data(data):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
             metadata = index.file_metadata[file1]
@@ -171,8 +192,7 @@ class TestEventDrivenIndex:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test file
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -191,8 +211,7 @@ class TestEventDrivenIndex:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -229,8 +248,7 @@ def transform(data):
             print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             db_path = os.path.join(tmpdir, "index.db")
             edi = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
@@ -267,8 +285,7 @@ def transform(data):
             print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -307,8 +324,7 @@ def transform(data):
             print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -349,8 +365,7 @@ def transform(data):
             print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -381,8 +396,7 @@ def transform(data):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
             edi = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
@@ -430,18 +444,31 @@ class TestDeltaPersistence:
 
         return _ctx()
 
+    def _assert_persistence_call_counts(
+        self,
+        edi,
+        tmpdir: str,
+        *,
+        expected_full: int,
+        expected_file: int,
+        expected_meta: int,
+    ) -> None:
+        with self._mock_persistence(edi) as (mock_full, mock_file, mock_meta):
+            edi.index_directory(tmpdir)
+            assert mock_full.call_count == expected_full
+            assert mock_file.call_count == expected_file
+            assert mock_meta.call_count == expected_meta
+
     def test_incremental_uses_delta_persistence(self):
         """After initial full index, incremental updates use per-file saves."""
         from astrograph.event_driven import EventDrivenIndex
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             file2 = os.path.join(tmpdir, "file2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -454,17 +481,17 @@ class TestDeltaPersistence:
             import time
 
             time.sleep(0.01)
-            with open(file1, "w") as f:
-                f.write("def foo_modified(): pass")
+            Path(file1).write_text("def foo_modified(): pass")
 
             # Second: incremental update should use delta persistence
             edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
-            with self._mock_persistence(edi2) as (mock_full, mock_file, mock_meta):
-                edi2.index_directory(tmpdir)
-
-                assert mock_full.call_count == 0
-                assert mock_file.call_count == 1
-                assert mock_meta.call_count == 1
+            self._assert_persistence_call_counts(
+                edi2,
+                tmpdir,
+                expected_full=0,
+                expected_file=1,
+                expected_meta=1,
+            )
 
             edi2.close()
 
@@ -476,12 +503,10 @@ class TestDeltaPersistence:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             file2 = os.path.join(tmpdir, "file2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -511,8 +536,7 @@ class TestDeltaPersistence:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
 
@@ -523,12 +547,13 @@ class TestDeltaPersistence:
 
             # Incremental with no changes
             edi2 = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
-            with self._mock_persistence(edi2) as (mock_full, mock_file, mock_meta):
-                edi2.index_directory(tmpdir)
-
-                assert mock_full.call_count == 0
-                assert mock_file.call_count == 0
-                assert mock_meta.call_count == 0
+            self._assert_persistence_call_counts(
+                edi2,
+                tmpdir,
+                expected_full=0,
+                expected_file=0,
+                expected_meta=0,
+            )
 
             edi2.close()
 
@@ -538,28 +563,18 @@ class TestFileWatcher:
 
     def test_watcher_creation(self):
         """Test creating a file watcher."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             events = []
 
-            def on_change(path):
-                events.append(("change", path))
-
-            def on_create(path):
-                events.append(("create", path))
-
-            def on_delete(path):
-                events.append(("delete", path))
-
             watcher = FileWatcher(
                 root_path=tmpdir,
-                on_file_changed=on_change,
-                on_file_created=on_create,
-                on_file_deleted=on_delete,
+                on_file_changed=_event_appender(events, "change"),
+                on_file_created=_event_appender(events, "create"),
+                on_file_deleted=_event_appender(events, "delete"),
             )
 
             watcher.start()
@@ -570,28 +585,18 @@ class TestFileWatcher:
 
     def test_watcher_detects_file_creation(self):
         """Test that watcher detects new Python files."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             events = []
 
-            def on_change(path):
-                events.append(("change", path))
-
-            def on_create(path):
-                events.append(("create", path))
-
-            def on_delete(path):
-                events.append(("delete", path))
-
             watcher = FileWatcher(
                 root_path=tmpdir,
-                on_file_changed=on_change,
-                on_file_created=on_create,
-                on_file_deleted=on_delete,
+                on_file_changed=_event_appender(events, "change"),
+                on_file_created=_event_appender(events, "create"),
+                on_file_deleted=_event_appender(events, "delete"),
                 debounce_delay=0.05,
             )
 
@@ -599,8 +604,7 @@ class TestFileWatcher:
 
             # Create a Python file
             file1 = os.path.join(tmpdir, "new_file.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # Wait for debounce
             time.sleep(0.2)
@@ -615,11 +619,7 @@ class TestFileWatcher:
         from astrograph.watcher import DebouncedCallback
 
         calls = []
-
-        def callback(path):
-            calls.append(path)
-
-        debounced = DebouncedCallback(callback, delay=0.1)
+        debounced = DebouncedCallback(_path_appender(calls), delay=0.1)
 
         # Rapid calls for same path
         debounced("/test/file.py")
@@ -639,10 +639,9 @@ class TestFileWatcherPool:
 
     def test_watch_and_unwatch(self):
         """Test watching and unwatching directories."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcherPool
+        from astrograph.watcher import FileWatcherPool
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             pool = FileWatcherPool()
@@ -670,10 +669,9 @@ class TestFileWatcherPool:
 
     def test_context_manager(self):
         """Test using pool as context manager."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcherPool
+        from astrograph.watcher import FileWatcherPool
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir, FileWatcherPool() as pool:
             pool.watch(
@@ -776,8 +774,7 @@ class TestPersistenceEntryLookup:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
             entry_ids = list(index.entries.keys())
@@ -803,8 +800,7 @@ class TestPersistenceEntryLookup:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass\ndef baz(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass\ndef baz(): pass")
 
             index.index_file(file1)
             entry_ids = list(index.entries.keys())
@@ -824,8 +820,7 @@ class TestPersistenceEntryLookup:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
 
@@ -850,8 +845,7 @@ class TestPersistenceEntryLookup:
             # Add some data, then vacuum
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
             index.index_file(file1)
             persistence.save_full_index(index)
 
@@ -939,8 +933,7 @@ class TestEventDrivenTools:
         """Test indexing codebase."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             result = tools.index_codebase(tmpdir)
@@ -966,8 +959,7 @@ def transform(data):
             print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             # First tools instance - suppress
             tools1 = CodeStructureTools()
@@ -975,24 +967,22 @@ def transform(data):
 
             analyze_result = tools1.analyze()
             match = re.search(r'suppress\(wl_hash="([^"]+)"\)', analyze_result.text)
-            if match:
-                wl_hash = match.group(1)
-                tools1.suppress(wl_hash)
-                tools1.close()
+            wl_hash = match.group(1) if match else pytest.skip("No duplicates found to suppress")
+            tools1.suppress(wl_hash)
+            tools1.close()
 
-                # Second tools instance - verify suppression persisted
-                tools2 = CodeStructureTools()
-                tools2.index_codebase(tmpdir)
+            # Second tools instance - verify suppression persisted
+            tools2 = CodeStructureTools()
+            tools2.index_codebase(tmpdir)
 
-                assert wl_hash in tools2.index.suppressed_hashes
-                tools2.close()
+            assert wl_hash in tools2.index.suppressed_hashes
+            tools2.close()
 
     def test_get_event_driven_stats(self):
         """Test getting event-driven statistics."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
@@ -1009,8 +999,7 @@ def transform(data):
         """Test using CodeStructureTools as context manager."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             with CodeStructureTools() as tools:
                 tools.index_codebase(tmpdir)
@@ -1022,25 +1011,20 @@ class TestWatcherFileEvents:
 
     def test_watcher_detects_modification(self):
         """Test that watcher detects file modifications."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create initial file
             file1 = os.path.join(tmpdir, "test.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             events = []
 
-            def on_change(path):
-                events.append(("change", path))
-
             watcher = FileWatcher(
                 root_path=tmpdir,
-                on_file_changed=on_change,
+                on_file_changed=_event_appender(events, "change"),
                 on_file_created=lambda _: None,
                 on_file_deleted=lambda _: None,
                 debounce_delay=0.05,
@@ -1050,8 +1034,7 @@ class TestWatcherFileEvents:
             time.sleep(0.1)
 
             # Modify the file
-            with open(file1, "w") as f:
-                f.write("def bar(): pass")
+            Path(file1).write_text("def bar(): pass")
 
             time.sleep(0.2)
             watcher.stop()
@@ -1061,21 +1044,17 @@ class TestWatcherFileEvents:
 
     def test_watcher_ignores_non_python(self):
         """Test that watcher ignores non-Python files."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             events = []
 
-            def on_create(path):
-                events.append(path)
-
             watcher = FileWatcher(
                 root_path=tmpdir,
                 on_file_changed=lambda _: None,
-                on_file_created=on_create,
+                on_file_created=_path_appender(events),
                 on_file_deleted=lambda _: None,
                 debounce_delay=0.05,
             )
@@ -1084,8 +1063,7 @@ class TestWatcherFileEvents:
 
             # Create non-Python file
             txt_file = os.path.join(tmpdir, "readme.txt")
-            with open(txt_file, "w") as f:
-                f.write("hello")
+            Path(txt_file).write_text("hello")
 
             time.sleep(0.2)
             watcher.stop()
@@ -1113,8 +1091,7 @@ def transform(data):
         print(element)
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             index.index_file(file1)
 
@@ -1145,8 +1122,7 @@ class TestEventDrivenFileEvents:
             # Resolve to handle macOS /tmp -> /private/var symlink
             tmpdir = str(Path(tmpdir).resolve())
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
             edi = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
@@ -1178,8 +1154,7 @@ class TestEventDrivenFileEvents:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             edi = EventDrivenIndex(persistence_path=None, watch_enabled=True)
             # Should log warning but not raise
@@ -1190,10 +1165,8 @@ class TestEventDrivenFileEvents:
     def test_start_watching_already_watching(self):
         """Test starting watcher when already watching."""
         from astrograph.event_driven import EventDrivenIndex
-        from astrograph.watcher import HAS_WATCHDOG
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             edi = EventDrivenIndex(persistence_path=None, watch_enabled=True)
@@ -1209,10 +1182,9 @@ class TestWatcherEdgeCases:
 
     def test_watcher_context_manager(self):
         """Test using FileWatcher as context manager."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -1230,11 +1202,7 @@ class TestWatcherEdgeCases:
         from astrograph.watcher import DebouncedCallback
 
         calls = []
-
-        def callback(path):
-            calls.append(path)
-
-        debounced = DebouncedCallback(callback, delay=0.5)
+        debounced = DebouncedCallback(_path_appender(calls), delay=0.5)
 
         debounced("/test/file.py")
         debounced.cancel_all()
@@ -1279,8 +1247,7 @@ class TestPersistenceGetEntries:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
             metadata = index.file_metadata[file1]
@@ -1303,12 +1270,10 @@ class TestPersistenceGetEntries:
             index = CodeStructureIndex()
 
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             file2 = os.path.join(tmpdir, "file2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             index.index_directory(tmpdir)
 
@@ -1329,16 +1294,13 @@ class TestEventDrivenWithWatching:
         from pathlib import Path
 
         from astrograph.event_driven import EventDrivenIndex
-        from astrograph.watcher import HAS_WATCHDOG
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
             edi = EventDrivenIndex(persistence_path=db_path, watch_enabled=True)
@@ -1348,8 +1310,7 @@ class TestEventDrivenWithWatching:
 
             # Create a new file
             file2 = os.path.join(tmpdir, "file2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             # Wait for watcher to detect and process
             time.sleep(0.3)
@@ -1388,13 +1349,16 @@ class TestWatcherHandlerEvents:
 
         assert len(events) == 0
 
-    def test_handler_ignores_directory_events(self):
-        """Test that directory events are ignored."""
-        self._assert_handler_filters(is_directory=True, src_path="/test/dir")
-
-    def test_handler_filters_non_python(self):
-        """Test that non-Python files are filtered."""
-        self._assert_handler_filters(is_directory=False, src_path="/test/file.txt")
+    @pytest.mark.parametrize(
+        ("is_directory", "src_path"),
+        [
+            pytest.param(True, "/test/dir", id="directory"),
+            pytest.param(False, "/test/file.txt", id="non-python"),
+        ],
+    )
+    def test_handler_filters_unsupported_events(self, is_directory: bool, src_path: str):
+        """Test that unsupported events are ignored."""
+        self._assert_handler_filters(is_directory=is_directory, src_path=src_path)
 
     def test_handler_cancel_pending(self):
         """Test cancelling pending handler events."""
@@ -1438,8 +1402,7 @@ class TestPersistenceFileMetadata:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             index.index_file(file1)
 
@@ -1495,15 +1458,13 @@ class TestWatcherNonDirectory:
 
     def test_watcher_rejects_file_path(self):
         """Test that FileWatcher rejects file paths."""
-        from astrograph.watcher import HAS_WATCHDOG, FileWatcher
+        from astrograph.watcher import FileWatcher
 
-        if not HAS_WATCHDOG:
-            pytest.skip("watchdog not installed")
+        _skip_if_watchdog_missing()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             watcher = FileWatcher(
                 root_path=file1,  # File, not directory
@@ -1529,8 +1490,7 @@ class TestEventDrivenFileHandlerCallback:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = str(Path(tmpdir).resolve())
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             db_path = os.path.join(tmpdir, "index.db")
             edi = EventDrivenIndex(persistence_path=db_path, watch_enabled=False)
@@ -1539,8 +1499,7 @@ class TestEventDrivenFileHandlerCallback:
             target = file1
             if create_extra_file:
                 target = os.path.join(tmpdir, "file2.py")
-                with open(target, "w") as f:
-                    f.write("def bar(): pass")
+                Path(target).write_text("def bar(): pass")
 
             initial_events = edi._file_events_processed
             getattr(edi, callback_name)(target)
@@ -1548,17 +1507,17 @@ class TestEventDrivenFileHandlerCallback:
 
             edi.close()
 
-    def test_on_file_changed_callback(self):
-        """Test file changed callback."""
-        self._run_file_event_callback("_on_file_changed")
-
-    def test_on_file_created_callback(self):
-        """Test file created callback."""
-        self._run_file_event_callback("_on_file_created", create_extra_file=True)
-
-    def test_on_file_deleted_callback(self):
-        """Test file deleted callback."""
-        self._run_file_event_callback("_on_file_deleted")
+    @pytest.mark.parametrize(
+        ("callback_name", "create_extra_file"),
+        [
+            pytest.param("_on_file_changed", False, id="changed"),
+            pytest.param("_on_file_created", True, id="created"),
+            pytest.param("_on_file_deleted", False, id="deleted"),
+        ],
+    )
+    def test_file_event_callbacks(self, callback_name: str, create_extra_file: bool):
+        """Test all file event callbacks."""
+        self._run_file_event_callback(callback_name, create_extra_file=create_extra_file)
 
 
 class TestCloudDetection:
@@ -1581,13 +1540,25 @@ class TestCloudDetection:
             warning = get_cloud_sync_warning(tmpdir)
             assert warning is None
 
-    def test_check_and_warn_cloud_sync_regular_path(self):
-        """Test check_and_warn for regular paths."""
+    @pytest.mark.parametrize(
+        ("use_logger",),
+        [
+            pytest.param(False, id="without-logger"),
+            pytest.param(True, id="with-logger"),
+        ],
+    )
+    def test_check_and_warn_cloud_sync_regular_path_variants(self, use_logger: bool):
+        """Test check_and_warn for regular paths with and without logger."""
         from astrograph.cloud_detect import check_and_warn_cloud_sync
 
+        kwargs = {}
+        if use_logger:
+            import logging
+
+            kwargs["logger"] = logging.getLogger("test_cloud")
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = check_and_warn_cloud_sync(tmpdir)
-            assert result is False
+            assert check_and_warn_cloud_sync(tmpdir, **kwargs) is False
 
     def test_get_cloud_storage_paths(self):
         """Test getting cloud storage paths."""
@@ -1605,11 +1576,18 @@ class TestCloudDetection:
             result = _expand_pattern(tmpdir)
             assert len(result) == 1
 
-    def test_expand_pattern_nonexistent(self):
-        """Test expanding pattern for nonexistent path."""
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "/nonexistent/path/that/does/not/exist",
+            "/nonexistent/parent/dir/*.py",
+        ],
+    )
+    def test_expand_pattern_nonexistent(self, pattern: str):
+        """Test expanding pattern for nonexistent paths."""
         from astrograph.cloud_detect import _expand_pattern
 
-        result = _expand_pattern("/nonexistent/path/that/does/not/exist")
+        result = _expand_pattern(pattern)
         assert result == []
 
     def test_get_platform_key(self):
@@ -1651,8 +1629,7 @@ class TestCloudDetectionInEventDriven:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # Should work without issues
             edi = EventDrivenIndex(persistence_path=None, watch_enabled=False)
@@ -1668,8 +1645,7 @@ class TestCloudDetectionInTools:
         """Test that event-driven tools work with regular paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             result = tools.index_codebase(tmpdir)
@@ -1717,41 +1693,12 @@ class TestCloudDetectionMoreCoverage:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create some files
             test_file = os.path.join(tmpdir, "test1.py")
-            with open(test_file, "w") as f:
-                f.write("")
+            Path(test_file).write_text("")
 
             # Pattern with wildcard
             pattern = os.path.join(tmpdir, "*.py")
             result = _expand_pattern(pattern)
             assert len(result) >= 1
-
-    def test_expand_pattern_wildcard_nonexistent_parent(self):
-        """Test expanding wildcard pattern with nonexistent parent."""
-        from astrograph.cloud_detect import _expand_pattern
-
-        result = _expand_pattern("/nonexistent/parent/dir/*.py")
-        assert result == []
-
-    def test_check_and_warn_cloud_sync_with_logger(self):
-        """Test check_and_warn_cloud_sync with a logger."""
-        import logging
-
-        from astrograph.cloud_detect import check_and_warn_cloud_sync
-
-        logger = logging.getLogger("test_cloud")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Regular path should return False
-            result = check_and_warn_cloud_sync(tmpdir, logger=logger)
-            assert result is False
-
-    def test_check_and_warn_cloud_sync_print_fallback(self):
-        """Test check_and_warn_cloud_sync prints to stderr when no logger."""
-        from astrograph.cloud_detect import check_and_warn_cloud_sync
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = check_and_warn_cloud_sync(tmpdir)
-            assert result is False
 
     def test_is_cloud_synced_path_subpath_check(self):
         """Test the subpath checking in is_cloud_synced_path."""
@@ -1837,8 +1784,7 @@ class TestEventDrivenCloudWarning:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             with patch("astrograph.event_driven.is_cloud_synced_path") as mock:
                 mock.return_value = (False, None)
@@ -1859,8 +1805,7 @@ class TestToolsCloudWarning:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # Patch at the source module where it's imported from
             with patch("astrograph.cloud_detect.get_cloud_sync_warning") as mock:
@@ -1910,20 +1855,16 @@ class TestCloudDetectionPlatformSpecific:
             importlib.reload(astrograph.cloud_detect)
             return astrograph.cloud_detect._get_platform_key()
 
-    def test_get_platform_key_mocked_windows(self):
-        """Test platform key for Windows."""
-        assert self._get_platform_key_for("Windows") == "win32"
-
-    def test_get_platform_key_mocked_unknown(self):
-        """Test platform key for unknown platform defaults to linux."""
-        assert self._get_platform_key_for("FreeBSD") == "linux"
-
-    def test_get_cloud_storage_paths_returns_dict(self):
-        """Test get_cloud_storage_paths returns a dict."""
-        from astrograph.cloud_detect import get_cloud_storage_paths
-
-        paths = get_cloud_storage_paths()
-        assert isinstance(paths, dict)
+    @pytest.mark.parametrize(
+        ("system_name", "expected"),
+        [
+            ("Windows", "win32"),
+            ("FreeBSD", "linux"),
+        ],
+    )
+    def test_get_platform_key_mocked_variants(self, system_name: str, expected: str):
+        """Test mocked platform key mapping."""
+        assert self._get_platform_key_for(system_name) == expected
 
     def test_is_cloud_synced_path_catches_value_error(self):
         """Test that is_cloud_synced_path catches ValueError for relative_to."""
@@ -1952,8 +1893,7 @@ class TestLRUPersistenceIntegration:
         """Test that get_stats shows entries_resident and entries_total."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             from astrograph.event_driven import EventDrivenIndex
 
@@ -1998,8 +1938,7 @@ class TestSchemaMigration:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
 
@@ -2034,8 +1973,7 @@ class TestSchemaMigration:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
 
@@ -2061,8 +1999,7 @@ class TestSchemaMigration:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             index.index_file(file1)
 
@@ -2085,8 +2022,7 @@ class TestSchemaMigration:
 
             index = CodeStructureIndex()
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass\ndef bar(): pass")
+            Path(file1).write_text("def foo(): pass\ndef bar(): pass")
 
             index.index_file(file1)
 

@@ -16,8 +16,9 @@ import logging
 import os
 import shutil
 import threading
+from collections.abc import Callable
 from datetime import datetime
-from functools import partialmethod
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from .canonical_hash import (
     structural_fingerprint,
     weisfeiler_leman_hash,
 )
+from .context import CloseOnExitMixin
 from .event_driven import EventDrivenIndex
 from .index import CodeStructureIndex, DuplicateGroup, IndexEntry
 from .languages.registry import LanguageRegistry
@@ -39,6 +41,18 @@ logger = logging.getLogger(__name__)
 # Persistence directory name for cached index
 PERSISTENCE_DIR = ".metadata_astrograph"
 ANALYSIS_REPORT_LATEST = "analysis_report.txt"
+
+
+def _requires_index(func: Callable[..., ToolResult]) -> Callable[..., ToolResult]:
+    """Guard a tool method so it returns the index-not-ready error when needed."""
+
+    @wraps(func)
+    def wrapper(self: CodeStructureTools, *args: Any, **kwargs: Any) -> ToolResult:
+        if error := self._require_index():
+            return error
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 def _get_persistence_path(indexed_path: str) -> Path:
@@ -76,7 +90,7 @@ class ToolResult:
         self.text = text
 
 
-class CodeStructureTools:
+class CodeStructureTools(CloseOnExitMixin):
     """
     Simplified code structure analysis tools.
 
@@ -182,13 +196,21 @@ class CodeStructureTools:
         tool has its own non-blocking path for quick readiness checks.
         """
         self._wait_for_background_index()
-        if not self.index.entries:
-            return ToolResult("No code indexed. Call index_codebase first.")
-        return None
+        return (
+            None
+            if self.index.entries
+            else ToolResult("No code indexed. Call index_codebase first.")
+        )
 
     def _active_index(self) -> CodeStructureIndex | EventDrivenIndex:
         """Return event-driven index when enabled, otherwise in-memory index."""
         return self._event_driven_index if self._event_driven_index else self.index
+
+    def _close_event_driven_index(self) -> None:
+        """Close and detach the current event-driven index, if present."""
+        if self._event_driven_index:
+            self._event_driven_index.close()
+            self._event_driven_index = None
 
     def _check_invalidated_suppressions(self) -> str:
         """
@@ -204,16 +226,19 @@ class CodeStructureTools:
             return ""
 
         invalidated = self.index.invalidate_stale_suppressions()
-        if not invalidated:
-            return ""
+        if invalidated:
+            max_shown = 5
+            hashes = [h for h, _ in invalidated]
+            shown = self._format_hash_preview(hashes, max_shown=max_shown)
+            return f"Suppressions invalidated: {shown}. Run analyze().\n"
+        return ""
 
-        max_shown = 5
-        hashes = [h for h, _ in invalidated]
+    @staticmethod
+    def _format_hash_preview(hashes: list[str], max_shown: int = 5) -> str:
+        """Format a compact preview string for hash lists."""
         if len(hashes) > max_shown:
-            shown = ", ".join(hashes[:max_shown]) + f" ... ({len(hashes)} total)"
-        else:
-            shown = ", ".join(hashes)
-        return f"Suppressions invalidated: {shown}. Run analyze().\n"
+            return ", ".join(hashes[:max_shown]) + f" ... ({len(hashes)} total)"
+        return ", ".join(hashes)
 
     def _has_significant_duplicates(self) -> bool:
         """Check if there are duplicates above the trivial threshold."""
@@ -285,8 +310,7 @@ class CodeStructureTools:
         sqlite_path = persistence_path / "index.db"
 
         # Close old event-driven index (stops watcher, closes SQLite connection)
-        if self._event_driven_index is not None:
-            self._event_driven_index.close()
+        self._close_event_driven_index()
 
         # Create new event-driven index with persistence
         self._event_driven_index = EventDrivenIndex(
@@ -421,14 +445,16 @@ class CodeStructureTools:
 
     def _clear_analysis_report(self) -> None:
         """Remove stale analysis report file when no findings."""
-        if self._last_indexed_path is None:
-            return
-        try:
-            report_file = _get_persistence_path(self._last_indexed_path) / ANALYSIS_REPORT_LATEST
-            report_file.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if self._last_indexed_path is not None:
+            try:
+                report_file = (
+                    _get_persistence_path(self._last_indexed_path) / ANALYSIS_REPORT_LATEST
+                )
+                report_file.unlink(missing_ok=True)
+            except OSError:
+                pass
 
+    @_requires_index
     def analyze(self, auto_reindex: bool = True) -> ToolResult:
         """
         Analyze the indexed codebase for duplicates and similar patterns.
@@ -442,9 +468,6 @@ class CodeStructureTools:
         - Pattern duplicates (same structure, different operators)
         - Block duplicates (duplicate for/while/if/try/with blocks within functions)
         """
-        if error := self._require_index():
-            return error
-
         # Check for invalidated suppressions (proactive notification)
         invalidation_warning = self._check_invalidated_suppressions()
 
@@ -539,6 +562,11 @@ class CodeStructureTools:
 
         suppressed_count = self.index.get_stats()["suppressed_hashes"]
 
+        def _suppressed_line(with_period: bool = False) -> str | None:
+            if suppressed_count <= 0:
+                return None
+            return f"+ {suppressed_count} suppressed{'.' if with_period else ''}"
+
         if not findings:
             self._clear_analysis_report()
             msg = "No significant duplicates."
@@ -600,8 +628,8 @@ class CodeStructureTools:
                 num += 1
 
         # Compact footer
-        if suppressed_count > 0:
-            lines.append(f"+ {suppressed_count} suppressed")
+        if suppressed_line := _suppressed_line():
+            lines.append(suppressed_line)
         lines.append(f"{len(findings)} duplicate groups.")
 
         full_output = "\n".join(lines)
@@ -631,8 +659,8 @@ class CodeStructureTools:
                     breakdown_parts.append(f"{test_count} in tests")
                 summary_parts.append(f"  {', '.join(breakdown_parts)}.")
 
-            if suppressed_count > 0:
-                summary_parts.append(f"+ {suppressed_count} suppressed.")
+            if suppressed_line := _suppressed_line(with_period=True):
+                summary_parts.append(suppressed_line)
             line_count_report = full_output.count("\n") + 1
             summary_parts.append(
                 f"Details: {PERSISTENCE_DIR}/{report_path.name} ({line_count_report} lines)"
@@ -644,15 +672,13 @@ class CodeStructureTools:
         # Fallback: file write failed or no indexed path — return full output inline
         return ToolResult(invalidation_warning + staleness_warning + full_output)
 
+    @_requires_index
     def check(self, code: str) -> ToolResult:
         """
         Check if code similar to the provided snippet exists.
 
         Use this BEFORE creating new code to avoid duplication.
         """
-        if error := self._require_index():
-            return error
-
         # Proactive notification of invalidated suppressions
         prefix = self._check_invalidated_suppressions()
 
@@ -709,11 +735,9 @@ class CodeStructureTools:
         else:
             return ToolResult("DIFFERENT: The code snippets are structurally different.")
 
+    @_requires_index
     def _toggle_suppression(self, wl_hash: str, suppress: bool) -> ToolResult:
         """Toggle hash suppression status with index check."""
-        if error := self._require_index():
-            return error
-
         # Proactive notification of invalidated suppressions
         prefix = self._check_invalidated_suppressions()
 
@@ -741,13 +765,15 @@ class CodeStructureTools:
 
         return ToolResult(prefix + (success_msg if success else failure_msg))
 
-    suppress = partialmethod(_toggle_suppression, suppress=True)
-    unsuppress = partialmethod(_toggle_suppression, suppress=False)
+    def suppress(self, wl_hash: str) -> ToolResult:
+        return self._toggle_suppression(wl_hash=wl_hash, suppress=True)
 
+    def unsuppress(self, wl_hash: str) -> ToolResult:
+        return self._toggle_suppression(wl_hash=wl_hash, suppress=False)
+
+    @_requires_index
     def _batch_toggle_suppression(self, wl_hashes: list[str], suppress: bool) -> ToolResult:
         """Batch suppress or unsuppress hashes."""
-        if error := self._require_index():
-            return error
         prefix = self._check_invalidated_suppressions()
         active_index = self._active_index()
         action = "suppress" if suppress else "unsuppress"
@@ -759,32 +785,31 @@ class CodeStructureTools:
             parts.append(f"{label} {len(changed)} hashes.")
         if not_found:
             max_shown = 5
-            if len(not_found) > max_shown:
-                shown = ", ".join(not_found[:max_shown]) + f" ... ({len(not_found)} total)"
-            else:
-                shown = ", ".join(not_found)
+            shown = self._format_hash_preview(not_found, max_shown=max_shown)
             parts.append(f"{len(not_found)} not found: {shown}")
-        if not parts:
-            parts.append("No hashes provided.")
+        parts = parts or ["No hashes provided."]
         if changed and suppress:
             parts.append("Run analyze to refresh.")
         return ToolResult(prefix + " ".join(parts))
 
-    suppress_batch = partialmethod(_batch_toggle_suppression, suppress=True)
-    unsuppress_batch = partialmethod(_batch_toggle_suppression, suppress=False)
+    def suppress_batch(self, wl_hashes: list[str]) -> ToolResult:
+        return self._batch_toggle_suppression(wl_hashes=wl_hashes, suppress=True)
+
+    def unsuppress_batch(self, wl_hashes: list[str]) -> ToolResult:
+        return self._batch_toggle_suppression(wl_hashes=wl_hashes, suppress=False)
 
     def list_suppressions(self) -> ToolResult:
         """List all suppressed hashes."""
         prefix = self._check_invalidated_suppressions()
         suppressed = self.index.get_suppressed()
-        if not suppressed:
-            return ToolResult(prefix + "No hashes are currently suppressed.")
-        max_shown = 20
-        shown = suppressed[:max_shown]
-        text = prefix + f"Suppressed hashes ({len(suppressed)}):\n" + "\n".join(shown)
-        if len(suppressed) > max_shown:
-            text += f"\n... +{len(suppressed) - max_shown} more"
-        return ToolResult(text)
+        if suppressed:
+            max_shown = 20
+            shown = suppressed[:max_shown]
+            text = prefix + f"Suppressed hashes ({len(suppressed)}):\n" + "\n".join(shown)
+            if len(suppressed) > max_shown:
+                text += f"\n... +{len(suppressed) - max_shown} more"
+            return ToolResult(text)
+        return ToolResult(prefix + "No hashes are currently suppressed.")
 
     def status(self) -> ToolResult:
         """Return current server status without blocking."""
@@ -809,9 +834,7 @@ class CodeStructureTools:
         self._wait_for_background_index()
 
         # Close event-driven index (stops watcher, closes SQLite)
-        if self._event_driven_index is not None:
-            self._event_driven_index.close()
-            self._event_driven_index = None
+        self._close_event_driven_index()
 
         # Clear in-memory index + suppressions
         self.index.clear()
@@ -866,6 +889,7 @@ class CodeStructureTools:
             lines.append(f"  ... and {len(files) - max_items} more")
         return lines
 
+    @_requires_index
     def check_staleness(self, path: str | None = None) -> ToolResult:
         """
         Check if the code index is stale (files changed since indexing).
@@ -873,9 +897,6 @@ class CodeStructureTools:
         Args:
             path: Optional root path to also check for new files.
         """
-        if error := self._require_index():
-            return error
-
         # Proactive notification of invalidated suppressions
         prefix = self._check_invalidated_suppressions()
 
@@ -920,15 +941,14 @@ class CodeStructureTools:
         if removed == 1 and added == 1:
             summary = "  Changed 1 line"
         else:
-            parts = []
-            if added > removed:
-                parts.append(f"Added {added - removed} line{'s' if added - removed != 1 else ''}")
-            if removed > added:
-                parts.append(f"Removed {removed - added} line{'s' if removed - added != 1 else ''}")
-            if not parts:
+            delta = added - removed
+            if delta == 0:
                 summary = f"  Changed {removed} line{'s' if removed != 1 else ''}"
+            elif delta > 0:
+                summary = f"  Added {delta} line{'s' if delta != 1 else ''}"
             else:
-                summary = "  " + ", removed ".join(parts) if len(parts) > 1 else "  " + parts[0]
+                removed_delta = -delta
+                summary = f"  Removed {removed_delta} line{'s' if removed_delta != 1 else ''}"
 
         # Build diff lines
         diff = []
@@ -937,13 +957,15 @@ class CodeStructureTools:
         for i in range(ctx_start, start_line):
             diff.append(f"  {i + 1:>4}  {file_lines[i]}")
 
+        def _append_marked(lines: list[str], marker: str) -> None:
+            for i, line in enumerate(lines):
+                diff.append(f"  {start_line + i + 1:>4} {marker}{line}")
+
         # Removed lines (original numbering)
-        for i, line in enumerate(old_lines):
-            diff.append(f"  {start_line + i + 1:>4} -{line}")
+        _append_marked(old_lines, "-")
 
         # Added lines (new numbering)
-        for i, line in enumerate(new_lines):
-            diff.append(f"  {start_line + i + 1:>4} +{line}")
+        _append_marked(new_lines, "+")
 
         # Context after
         end_line = start_line + len(old_lines)
@@ -955,6 +977,7 @@ class CodeStructureTools:
 
         return f"Edited {file_path}\n{summary}\n" + "\n".join(diff)
 
+    @_requires_index
     def write(self, file_path: str, content: str) -> ToolResult:
         """
         Write code to a file with automatic duplicate detection.
@@ -962,9 +985,6 @@ class CodeStructureTools:
         Checks the content for structural duplicates before writing.
         Blocks if identical code exists elsewhere; warns on high similarity.
         """
-        if error := self._require_index():
-            return error
-
         file_path = self._resolve_path(file_path)
 
         # Infer language from file extension
@@ -1014,12 +1034,12 @@ class CodeStructureTools:
     ) -> ToolResult:
         """Write content to a file with error handling."""
         try:
-            with open(file_path, "w") as f:
-                f.write(content)
+            Path(file_path).write_text(content)
             return ToolResult(summary or f"Wrote {display_path or file_path}")
         except OSError as e:
             return ToolResult(f"Failed to write {display_path or file_path}: {e}")
 
+    @_requires_index
     def edit(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
         """
         Edit a file with automatic duplicate detection.
@@ -1027,9 +1047,6 @@ class CodeStructureTools:
         Checks the new_string for structural duplicates before applying.
         Blocks if identical code exists elsewhere; warns on high similarity.
         """
-        if error := self._require_index():
-            return error
-
         file_path = self._resolve_path(file_path)
         display_path = self._relative_path(file_path)
 
@@ -1157,15 +1174,7 @@ class CodeStructureTools:
     def close(self) -> None:
         """Clean up resources (file watchers, database connections)."""
         self._wait_for_background_index()
-        if self._event_driven_index is not None:
-            self._event_driven_index.close()
-            self._event_driven_index = None
-
-    def __enter__(self) -> CodeStructureTools:
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        self.close()
+        self._close_event_driven_index()
 
     def get_event_driven_stats(self) -> dict | None:
         """Get event-driven mode statistics (returns None if no event-driven index)."""

@@ -92,6 +92,32 @@ class TestRecommendationEngine:
     def engine(self):
         return RecommendationEngine()
 
+    @staticmethod
+    def _add_duplicate_units(
+        index: CodeStructureIndex,
+        prefix: str,
+        code: str,
+        line_end: int,
+    ) -> None:
+        for i in range(2):
+            index.add_code_unit(
+                CodeUnit(
+                    name=f"{prefix}_{i}",
+                    code=code,
+                    file_path=f"src/{prefix}{i}.py",
+                    line_start=1,
+                    line_end=line_end,
+                    unit_type="function",
+                )
+            )
+
+    @staticmethod
+    def _assert_first_action(recommendations, action: ActionType) -> None:
+        first = (
+            recommendations[0] if recommendations else pytest.skip("No recommendations produced")
+        )
+        assert first.action == action
+
     @pytest.fixture
     def sample_index_with_duplicates(self):
         """Create an index with actual duplicates for testing."""
@@ -203,11 +229,7 @@ def check_data(value):
 
         groups = index.find_all_duplicates(min_node_count=1)
         recommendations = engine.analyze_duplicates(groups)
-
-        if recommendations:
-            rec = recommendations[0]
-            # Should recognize these are test files
-            assert rec.action == ActionType.REVIEW_TEST_DUPLICATION
+        self._assert_first_action(recommendations, ActionType.REVIEW_TEST_DUPLICATION)
 
     def test_recommendations_sorted_by_impact(self, engine):
         """Recommendations should be sorted by impact score descending."""
@@ -224,29 +246,8 @@ def process(items):
     return results
 """
 
-        # Simple duplicates
-        for i in range(2):
-            unit = CodeUnit(
-                name=f"simple_{i}",
-                code=simple_code,
-                file_path=f"src/simple{i}.py",
-                line_start=1,
-                line_end=1,
-                unit_type="function",
-            )
-            index.add_code_unit(unit)
-
-        # Complex duplicates
-        for i in range(2):
-            unit = CodeUnit(
-                name=f"complex_{i}",
-                code=complex_code,
-                file_path=f"src/complex{i}.py",
-                line_start=1,
-                line_end=7,
-                unit_type="function",
-            )
-            index.add_code_unit(unit)
+        self._add_duplicate_units(index, "simple", simple_code, line_end=1)
+        self._add_duplicate_units(index, "complex", complex_code, line_end=7)
 
         groups = index.find_all_duplicates(min_node_count=1)
         recommendations = engine.analyze_duplicates(groups)
@@ -365,11 +366,7 @@ def save(self):
 
         groups = index.find_all_duplicates(min_node_count=3)
         recommendations = engine.analyze_duplicates(groups)
-
-        if recommendations:
-            rec = recommendations[0]
-            # Should suggest base class extraction
-            assert rec.action == ActionType.EXTRACT_TO_BASE_CLASS
+        self._assert_first_action(recommendations, ActionType.EXTRACT_TO_BASE_CLASS)
 
     def test_consolidate_in_place_action(self, engine):
         """Duplicates in same directory should suggest consolidation."""
@@ -404,11 +401,7 @@ def helper(data):
 
         groups = index.find_all_duplicates(min_node_count=3)
         recommendations = engine.analyze_duplicates(groups)
-
-        if recommendations:
-            rec = recommendations[0]
-            # Should suggest consolidating in same directory
-            assert rec.action == ActionType.CONSOLIDATE_IN_PLACE
+        self._assert_first_action(recommendations, ActionType.CONSOLIDATE_IN_PLACE)
 
 
 class TestFormatRecommendationsReport:

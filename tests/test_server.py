@@ -25,6 +25,39 @@ class TestResolveDockerPath:
     def _tools(self):
         self.tools = CodeStructureTools()
 
+    @staticmethod
+    def _workspace_is_dir_mock(original_is_dir, workspace_path: str):
+        def mock_is_dir(self):
+            if str(self) == workspace_path:
+                return True
+            return original_is_dir(self)
+
+        return mock_is_dir
+
+    @staticmethod
+    def _docker_exists_mock(original_exists, *existing_paths: str):
+        existing = set(existing_paths)
+
+        def mock_exists(self):
+            return str(self) in existing or original_exists(self)
+
+        return mock_exists
+
+    def _assert_docker_new_file_resolution(
+        self,
+        source_path: str,
+        expected_path: str,
+        existing_paths: tuple[str, ...],
+        workspace_dir: str,
+    ) -> None:
+        original_exists = Path.exists
+        original_is_dir = Path.is_dir
+        mock_exists = self._docker_exists_mock(original_exists, *existing_paths)
+        mock_is_dir = self._workspace_is_dir_mock(original_is_dir, workspace_dir)
+
+        with patch.object(Path, "exists", mock_exists), patch.object(Path, "is_dir", mock_is_dir):
+            assert self.tools._resolve_path(source_path) == expected_path
+
     def test_existing_path_unchanged(self):
         """Existing paths are returned unchanged."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -71,12 +104,9 @@ class TestResolveDockerPath:
     def test_resolve_docker_path_with_mock_docker_env(self):
         """Test Docker path resolution with mocked Docker environment."""
         original_exists = Path.exists
-
-        def mock_exists(self):
-            path_str = str(self)
-            if path_str in ("/workspace", "/.dockerenv", "/workspace/src"):
-                return True
-            return original_exists(self)
+        mock_exists = self._docker_exists_mock(
+            original_exists, "/workspace", "/.dockerenv", "/workspace/src"
+        )
 
         with patch.object(Path, "exists", mock_exists):
             result = self.tools._resolve_path("/Users/foo/bar/src")
@@ -84,55 +114,28 @@ class TestResolveDockerPath:
 
     def test_resolve_docker_path_new_file(self):
         """Test Docker path resolution for a new file (parent exists, file doesn't)."""
-        original_exists = Path.exists
-        original_is_dir = Path.is_dir
-
-        def mock_exists(self):
-            path_str = str(self)
-            if path_str in ("/workspace", "/.dockerenv", "/workspace/src"):
-                return True
-            return original_exists(self)
-
-        def mock_is_dir(self):
-            path_str = str(self)
-            if path_str == "/workspace/src":
-                return True
-            return original_is_dir(self)
-
-        with patch.object(Path, "exists", mock_exists), patch.object(Path, "is_dir", mock_is_dir):
-            result = self.tools._resolve_path("/Users/foo/bar/src/new_file.py")
-            assert result == "/workspace/src/new_file.py"
+        self._assert_docker_new_file_resolution(
+            "/Users/foo/bar/src/new_file.py",
+            "/workspace/src/new_file.py",
+            ("/workspace", "/.dockerenv", "/workspace/src"),
+            "/workspace/src",
+        )
 
     def test_resolve_docker_path_new_file_at_root(self):
         """Test Docker path resolution for a new file at workspace root."""
-        original_exists = Path.exists
-        original_is_dir = Path.is_dir
-
-        def mock_exists(self):
-            path_str = str(self)
-            if path_str in ("/workspace", "/.dockerenv"):
-                return True
-            return original_exists(self)
-
-        def mock_is_dir(self):
-            path_str = str(self)
-            if path_str == "/workspace":
-                return True
-            return original_is_dir(self)
-
-        with patch.object(Path, "exists", mock_exists), patch.object(Path, "is_dir", mock_is_dir):
-            result = self.tools._resolve_path("/Users/foo/bar/test.py")
-            assert result == "/workspace/test.py"
+        self._assert_docker_new_file_resolution(
+            "/Users/foo/bar/test.py",
+            "/workspace/test.py",
+            ("/workspace", "/.dockerenv"),
+            "/workspace",
+        )
 
     def test_learned_root_mapping_speeds_up_subsequent_calls(self):
         """After first successful resolution, host_root is cached and reused."""
         original_exists = Path.exists
-
-        def mock_exists(self):
-            path_str = str(self)
-            if path_str in ("/workspace", "/.dockerenv", "/workspace/src"):
-                return True
-            return original_exists(self)
+        mock_exists = self._docker_exists_mock(
+            original_exists, "/workspace", "/.dockerenv", "/workspace/src"
+        )
 
         with patch.object(Path, "exists", mock_exists):
             # First call learns the mapping
@@ -149,8 +152,7 @@ class TestResolveDockerPath:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create and index a real file so _require_index passes
             py_file = os.path.join(tmpdir, "existing.py")
-            with open(py_file, "w") as f:
-                f.write("def foo(): pass\n")
+            Path(py_file).write_text("def foo(): pass\n")
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
@@ -177,6 +179,65 @@ def _get_analyze_details(tools, result):
     base = indexed.parent if not indexed.is_dir() else indexed
     report = base / PERSISTENCE_DIR / match.group(1)
     return report.read_text() if report.exists() else result.text
+
+
+def _assert_status_reports_indexing(tools: CodeStructureTools) -> None:
+    tools._bg_index_done.clear()
+    result = tools.status()
+    assert "indexing" in result.text
+    tools._bg_index_done.set()
+
+
+def _index_single_file_directory(
+    tools: CodeStructureTools,
+    filename: str = "test.py",
+    source: str = "def foo(): pass",
+) -> ToolResult:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        py_file = os.path.join(tmpdir, filename)
+        Path(py_file).write_text(source)
+        return tools.index_codebase(tmpdir)
+
+
+def _index_temp_code_file(tools: CodeStructureTools, code: str) -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(code)
+        f.flush()
+        tools.index_codebase(f.name)
+    os.unlink(f.name)
+
+
+def _overwrite_file(path: str, content: str) -> None:
+    Path(path).write_text(content)
+
+
+def _suppress_first_hash_from_analysis(tools: CodeStructureTools) -> str:
+    details = _get_analyze_details(tools, tools.analyze())
+    match = re.search(r'suppress\(wl_hash="([^"]+)"\)', details)
+    assert match
+    wl_hash = match.group(1)
+    tools.suppress(wl_hash)
+    return wl_hash
+
+
+def _start_background_index_completion(tools: CodeStructureTools, delay: float = 0.05) -> None:
+    import threading
+
+    def finish_bg():
+        time.sleep(delay)
+        tools._bg_index_done.set()
+
+    threading.Thread(target=finish_bg, daemon=True).start()
+
+
+def _with_indexed_temp_file(tools: CodeStructureTools, content: str, fn):
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(content)
+        f.flush()
+        tools.index_codebase(f.name)
+        result = fn()
+    os.unlink(f.name)
+    return result
 
 
 @pytest.fixture
@@ -218,14 +279,8 @@ class TestIndexCodebase:
         assert "code units" in result.text
 
     def test_index_directory(self, tools):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a Python file
-            py_file = os.path.join(tmpdir, "test.py")
-            with open(py_file, "w") as f:
-                f.write("def foo(): pass")
-
-            result = tools.index_codebase(tmpdir)
-            assert "Indexed" in result.text
+        result = _index_single_file_directory(tools)
+        assert "Indexed" in result.text
 
     def test_index_nonexistent_path(self, tools):
         result = tools.index_codebase("/nonexistent/path")
@@ -280,8 +335,7 @@ class TestCheck:
     """Tests for check tool."""
 
     def test_check_empty_index(self, tools):
-        result = tools.check("def foo(): pass")
-        assert "No code indexed" in result.text
+        assert "No code indexed" in tools.check("def foo(): pass").text
 
     @pytest.mark.parametrize(
         "code,description",
@@ -395,11 +449,7 @@ def transform_data(data):
             output.append(element * 2)
     return output
 """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(complex_code)
-            f.flush()
-            tools.index_codebase(f.name)
-        os.unlink(f.name)
+        _index_temp_code_file(tools, complex_code)
 
         result = tools.analyze()
         # Should find duplicates with suppress calls or no findings
@@ -419,15 +469,13 @@ def process_items(items):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create file at root level
             root_file = os.path.join(tmpdir, "root.py")
-            with open(root_file, "w") as f:
-                f.write(complex_func)
+            Path(root_file).write_text(complex_func)
 
             # Create file in subdirectory
             subdir = os.path.join(tmpdir, "sub", "dir")
             os.makedirs(subdir)
             deep_file = os.path.join(subdir, "deep.py")
-            with open(deep_file, "w") as f:
-                f.write(complex_func.replace("process_items", "transform_data"))
+            Path(deep_file).write_text(complex_func.replace("process_items", "transform_data"))
 
             tools.index_codebase(tmpdir)
             result = tools.analyze()
@@ -447,11 +495,7 @@ def check_negative(x):
         return True
     return False
 """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(pattern_code)
-            f.flush()
-            tools.index_codebase(f.name)
-        os.unlink(f.name)
+        _index_temp_code_file(tools, pattern_code)
 
         result = tools.analyze()
         # May find pattern duplicates
@@ -471,11 +515,7 @@ def process(items):
             results.append(item)
     return results
 """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(base_code)
-            f.flush()
-            tools.index_codebase(f.name)
-        os.unlink(f.name)
+        _index_temp_code_file(tools, base_code)
 
         # Check with similar but not exact code
         similar_code = """
@@ -512,6 +552,16 @@ class TestCompareBranches:
 class TestBlockDetection:
     """Tests for block duplicate detection in tools."""
 
+    @staticmethod
+    def _analyze_temp_code(tools, code: str):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+            tools.index_codebase(f.name)
+            result = tools.analyze()
+        os.unlink(f.name)
+        return result
+
     def test_index_codebase_extracts_blocks(self, tools):
         """Test indexing always extracts blocks (22% overhead, much better detection)."""
         code = """
@@ -545,12 +595,7 @@ def func2():
         if j > 5:
             print(j)
 """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(code)
-            f.flush()
-            tools.index_codebase(f.name)
-            result = tools.analyze()
-        os.unlink(f.name)
+        result = self._analyze_temp_code(tools, code)
 
         # Should find duplicates with suppress calls or no findings
         details = _get_analyze_details(tools, result)
@@ -573,12 +618,7 @@ def transform_list(data):
             print(output)
     return
 """
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(code)
-            f.flush()
-            tools.index_codebase(f.name)
-            result = tools.analyze()
-        os.unlink(f.name)
+        result = self._analyze_temp_code(tools, code)
 
         # Should have some analysis output
         assert result.text
@@ -617,10 +657,18 @@ def transform_data(data):
         result = tools.suppress("some_hash")
         assert "No code indexed" in result.text
 
-    def test_suppress_invalid_hash(self, tools, _indexed_with_duplicates):
-        """Test suppress with invalid hash."""
-        result = tools.suppress("nonexistent_hash")
-        assert "not found" in result.text
+    @pytest.mark.parametrize(
+        ("action", "wl_hash", "expected"),
+        [
+            ("suppress", "nonexistent_hash", "not found"),
+            ("unsuppress", "not_suppressed_hash", "was not suppressed"),
+        ],
+    )
+    def test_toggle_invalid_hash(self, tools, _indexed_with_duplicates, action, wl_hash, expected):
+        """Invalid suppress/unsuppress hash operations return clear errors."""
+        method = getattr(tools, action)
+        result = method(wl_hash)
+        assert expected in result.text
 
     def test_suppress_valid_hash(self, tools, _indexed_with_duplicates):
         """Test suppress with valid hash."""
@@ -645,11 +693,6 @@ def transform_data(data):
                     wl_hash not in analyze_after.text
                     or "No significant duplicates" in analyze_after.text
                 )
-
-    def test_unsuppress_not_suppressed(self, tools, _indexed_with_duplicates):
-        """Test unsuppress with a hash that was not suppressed."""
-        result = tools.unsuppress("not_suppressed_hash")
-        assert "was not suppressed" in result.text
 
     def test_unsuppress_valid(self, tools, _indexed_with_duplicates):
         """Test unsuppress restores the hash."""
@@ -691,15 +734,14 @@ def transform_data(data):
             assert wl_hash in result.text
             assert "Suppressed hashes" in result.text
 
-    def test_call_tool_suppress(self, tools, _indexed_with_duplicates):
-        """Test call_tool dispatch for suppress."""
-        result = tools.call_tool("suppress", {"wl_hash": "test_hash"})
-        assert "not found" in result.text
-
-    def test_call_tool_unsuppress(self, tools, _indexed_with_duplicates):
-        """Test call_tool dispatch for unsuppress."""
-        result = tools.call_tool("unsuppress", {"wl_hash": "test_hash"})
-        assert "was not suppressed" in result.text
+    @pytest.mark.parametrize(
+        ("tool_name", "expected"),
+        [("suppress", "not found"), ("unsuppress", "was not suppressed")],
+    )
+    def test_call_tool_toggle(self, tools, _indexed_with_duplicates, tool_name, expected):
+        """call_tool dispatch for suppress/unsuppress returns expected status."""
+        result = tools.call_tool(tool_name, {"wl_hash": "test_hash"})
+        assert expected in result.text
 
     def test_call_tool_list_suppressions(self, tools, _indexed_with_duplicates):
         """Test call_tool dispatch for list_suppressions."""
@@ -738,14 +780,16 @@ def transform_data(data):
             assert "Suppressed" in result.text
             assert "not found" in result.text
 
-    def test_suppress_batch_empty(self, tools, _indexed_with_duplicates):
-        """Test batch suppress with empty list."""
-        result = tools.suppress_batch([])
+    @pytest.mark.parametrize("method_name", ["suppress_batch", "unsuppress_batch"])
+    def test_batch_toggle_empty(self, tools, _indexed_with_duplicates, method_name):
+        """Batch toggle with empty list returns a helpful message."""
+        result = getattr(tools, method_name)([])
         assert "No hashes provided" in result.text
 
-    def test_call_tool_suppress_batch(self, tools, _indexed_with_duplicates):
-        """Test call_tool dispatch for suppress_batch."""
-        result = tools.call_tool("suppress_batch", {"wl_hashes": ["fake_hash"]})
+    @pytest.mark.parametrize("tool_name", ["suppress_batch", "unsuppress_batch"])
+    def test_call_tool_batch_toggle(self, tools, _indexed_with_duplicates, tool_name):
+        """call_tool dispatch for batch toggle with unknown hash reports not found."""
+        result = tools.call_tool(tool_name, {"wl_hashes": ["fake_hash"]})
         assert "not found" in result.text
 
     def test_unsuppress_batch_valid(self, tools, _indexed_with_duplicates):
@@ -774,16 +818,6 @@ def transform_data(data):
             result = tools.unsuppress_batch(mixed)
             assert "Unsuppressed" in result.text
             assert "not found" in result.text
-
-    def test_unsuppress_batch_empty(self, tools, _indexed_with_duplicates):
-        """Test batch unsuppress with empty list."""
-        result = tools.unsuppress_batch([])
-        assert "No hashes provided" in result.text
-
-    def test_call_tool_unsuppress_batch(self, tools, _indexed_with_duplicates):
-        """Test call_tool dispatch for unsuppress_batch."""
-        result = tools.call_tool("unsuppress_batch", {"wl_hashes": ["fake_hash"]})
-        assert "not found" in result.text
 
 
 class TestWorkflowIntegration:
@@ -849,8 +883,7 @@ def sum_values(numbers):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create initial file
             file1 = os.path.join(tmpdir, "module1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): return 1\n")
+            Path(file1).write_text("def foo(): return 1\n")
 
             # Initial index
             result1 = tools.index_codebase(tmpdir)
@@ -858,8 +891,7 @@ def sum_values(numbers):
 
             # Add another file
             file2 = os.path.join(tmpdir, "module2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): return 2\n")
+            Path(file2).write_text("def bar(): return 2\n")
 
             # Incremental re-index
             result2 = tools.index_codebase(tmpdir)
@@ -881,12 +913,7 @@ class TestCheckStaleness:
 
     def test_check_staleness_fresh_index(self, tools):
         """Test check_staleness on freshly indexed codebase."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write("def foo(): pass")
-            f.flush()
-            tools.index_codebase(f.name)
-            result = tools.check_staleness()
-        os.unlink(f.name)
+        result = _with_indexed_temp_file(tools, "def foo(): pass", tools.check_staleness)
 
         assert "up to date" in result.text
 
@@ -901,8 +928,7 @@ class TestCheckStaleness:
 
             # Modify file
             time.sleep(0.01)
-            with open(f.name, "w") as mod_f:
-                mod_f.write("def bar(): pass")
+            _overwrite_file(f.name, "def bar(): pass")
 
             result = tools.check_staleness()
         os.unlink(f.name)
@@ -914,15 +940,13 @@ class TestCheckStaleness:
         """Test check_staleness with path parameter for new files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools.index_codebase(tmpdir)
 
             # Add new file
             file2 = os.path.join(tmpdir, "file2.py")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             result = tools.check_staleness(path=tmpdir)
 
@@ -941,22 +965,14 @@ class TestIncrementalIndexing:
 
     def test_index_codebase_first_run_full_index(self, tools):
         """Test first indexing is always a full index."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
-
-            # First run - always a full index
-            result = tools.index_codebase(tmpdir)
-
-            assert "Indexed" in result.text
+        result = _index_single_file_directory(tools, filename="file1.py")
+        assert "Indexed" in result.text
 
     def test_index_codebase_incremental_unchanged(self, tools):
         """Test incremental indexing with unchanged files still produces valid output."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # First index (full)
             tools.index_codebase(tmpdir)
@@ -974,18 +990,15 @@ class TestIncrementalIndexing:
             file1 = os.path.join(tmpdir, "file1.py")
             file2 = os.path.join(tmpdir, "file2.py")
 
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
-            with open(file2, "w") as f:
-                f.write("def bar(): pass")
+            Path(file1).write_text("def foo(): pass")
+            Path(file2).write_text("def bar(): pass")
 
             # First index (full)
             tools.index_codebase(tmpdir)
 
             # Modify only file1
             time.sleep(0.01)
-            with open(file1, "w") as f:
-                f.write("def foo_modified(): pass")
+            Path(file1).write_text("def foo_modified(): pass")
 
             result = tools.index_codebase(tmpdir)
 
@@ -996,8 +1009,7 @@ class TestIncrementalIndexing:
         """Test incremental defaults to True."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # First index
             tools.index_codebase(tmpdir)
@@ -1020,8 +1032,7 @@ class TestAnalyzeStalenessWarning:
             tools.index_codebase(f.name)
 
             time.sleep(0.01)
-            with open(f.name, "w") as mod_f:
-                mod_f.write("def baz(): pass")
+            _overwrite_file(f.name, "def baz(): pass")
 
             result = tools.analyze(auto_reindex=auto_reindex)
         os.unlink(f.name)
@@ -1040,12 +1051,11 @@ class TestAnalyzeStalenessWarning:
 
     def test_analyze_no_warning_fresh_index(self, tools):
         """Test analyze has no warning when index is fresh."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write("def unique_function_abc123(): return 42")
-            f.flush()
-            tools.index_codebase(f.name)
-            result = tools.analyze()
-        os.unlink(f.name)
+        result = _with_indexed_temp_file(
+            tools,
+            "def unique_function_abc123(): return 42",
+            tools.analyze,
+        )
 
         # No staleness warning for fresh index
         if "No significant duplicates" in result.text:
@@ -1059,8 +1069,7 @@ class TestPersistence:
         """Test that indexing creates .metadata_astrograph folder with SQLite DB."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
@@ -1074,8 +1083,7 @@ class TestPersistence:
         """Test that cached index is loaded on re-index with fresh tools."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             # First tools instance - index and save
             tools1 = CodeStructureTools()
@@ -1113,31 +1121,23 @@ def transform_data(data):
     return output
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             # First tools instance - index and suppress
             tools1 = CodeStructureTools()
             tools1.index_codebase(tmpdir)
 
             # Find a hash to suppress
-            import re
+            wl_hash = _suppress_first_hash_from_analysis(tools1)
+            tools1.close()
 
-            analyze_result = tools1.analyze()
-            details = _get_analyze_details(tools1, analyze_result)
-            match = re.search(r'suppress\(wl_hash="([^"]+)"\)', details)
-            if match:
-                wl_hash = match.group(1)
-                tools1.suppress(wl_hash)
-                tools1.close()
+            # Second tools instance - should load suppression from SQLite
+            tools2 = CodeStructureTools()
+            tools2.index_codebase(tmpdir)
 
-                # Second tools instance - should load suppression from SQLite
-                tools2 = CodeStructureTools()
-                tools2.index_codebase(tmpdir)
-
-                # Suppression should be preserved
-                assert wl_hash in tools2.index.suppressed_hashes
-                tools2.close()
+            # Suppression should be preserved
+            assert wl_hash in tools2.index.suppressed_hashes
+            tools2.close()
 
     def test_unsuppress_persists_across_sessions(self):
         """Test that unsuppression persists to SQLite across sessions."""
@@ -1158,8 +1158,7 @@ def transform_data(data):
     return output
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             # First tools instance - index, suppress, then unsuppress
             tools1 = CodeStructureTools()
@@ -1187,8 +1186,7 @@ def transform_data(data):
         """Test persistence works when indexing a single file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             tools.index_codebase(file1)
@@ -1424,8 +1422,7 @@ def transform_data(data):
     return output
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             # --- Session 1: index, suppress, close ---
             tools1 = CodeStructureTools()
@@ -1436,10 +1433,7 @@ def transform_data(data):
             analyze_result = tools1.analyze()
             details = _get_analyze_details(tools1, analyze_result)
             match = re.search(r'suppress\(wl_hash="([^"]+)"\)', details)
-            if not match:
-                pytest.skip("No duplicates found to suppress")
-
-            wl_hash = match.group(1)
+            wl_hash = match.group(1) if match else pytest.skip("No duplicates found to suppress")
             tools1.suppress(wl_hash)
 
             # Explicitly close (simulates Docker SIGTERM → _tools.close())
@@ -1470,13 +1464,14 @@ def {name}(items):
     def test_analyze_report_uses_relative_paths(self, tools):
         """Report paths should be relative, not absolute."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            file1 = os.path.join(tmpdir, "module_a.py")
-            with open(file1, "w") as f:
-                f.write(self._complex_func("process_items"))
-
-            file2 = os.path.join(tmpdir, "module_b.py")
-            with open(file2, "w") as f:
-                f.write(self._complex_func("transform_data"))
+            self._write_files(
+                tmpdir,
+                "",
+                [
+                    ("module_a.py", self._complex_func("process_items")),
+                    ("module_b.py", self._complex_func("transform_data")),
+                ],
+            )
 
             tools.index_codebase(tmpdir)
             result = tools.analyze()
@@ -1502,24 +1497,42 @@ def {name}(data):
     return count
 """
 
+    @staticmethod
+    def _write_files(tmpdir: str, relative_dir: str, files: list[tuple[str, str]]) -> None:
+        dir_path = os.path.join(tmpdir, relative_dir) if relative_dir else tmpdir
+        os.makedirs(dir_path, exist_ok=True)
+        for filename, content in files:
+            with open(os.path.join(dir_path, filename), "w") as f:
+                f.write(content)
+
+    def _write_function_pair(
+        self,
+        tmpdir: str,
+        relative_dir: str,
+        files: list[tuple[str, str]],
+        generator,
+    ) -> None:
+        self._write_files(
+            tmpdir,
+            relative_dir,
+            [(filename, generator(function_name)) for filename, function_name in files],
+        )
+
     def test_analyze_report_separates_source_and_tests(self, tools):
         """Report should have section headers when both source and test duplicates exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Source duplicates (one structure)
-            src_dir = os.path.join(tmpdir, "src")
-            os.makedirs(src_dir)
-            with open(os.path.join(src_dir, "module_a.py"), "w") as f:
-                f.write(self._complex_func("process_items"))
-            with open(os.path.join(src_dir, "module_b.py"), "w") as f:
-                f.write(self._complex_func("transform_data"))
-
-            # Test duplicates (different structure so they form a separate group)
-            tests_dir = os.path.join(tmpdir, "tests")
-            os.makedirs(tests_dir)
-            with open(os.path.join(tests_dir, "test_a.py"), "w") as f:
-                f.write(self._different_complex_func("test_check_a"))
-            with open(os.path.join(tests_dir, "test_b.py"), "w") as f:
-                f.write(self._different_complex_func("test_check_b"))
+            self._write_function_pair(
+                tmpdir,
+                "src",
+                [("module_a.py", "process_items"), ("module_b.py", "transform_data")],
+                self._complex_func,
+            )
+            self._write_function_pair(
+                tmpdir,
+                "tests",
+                [("test_a.py", "test_check_a"), ("test_b.py", "test_check_b")],
+                self._different_complex_func,
+            )
 
             tools.index_codebase(tmpdir)
             result = tools.analyze()
@@ -1534,21 +1547,18 @@ def {name}(data):
     def test_analyze_summary_shows_source_vs_test_counts(self, tools):
         """Inline summary should include source vs test breakdown."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Source duplicates (one structure)
-            src_dir = os.path.join(tmpdir, "src")
-            os.makedirs(src_dir)
-            with open(os.path.join(src_dir, "module_a.py"), "w") as f:
-                f.write(self._complex_func("process_items"))
-            with open(os.path.join(src_dir, "module_b.py"), "w") as f:
-                f.write(self._complex_func("transform_data"))
-
-            # Test duplicates (different structure)
-            tests_dir = os.path.join(tmpdir, "tests")
-            os.makedirs(tests_dir)
-            with open(os.path.join(tests_dir, "test_a.py"), "w") as f:
-                f.write(self._different_complex_func("test_check_a"))
-            with open(os.path.join(tests_dir, "test_b.py"), "w") as f:
-                f.write(self._different_complex_func("test_check_b"))
+            self._write_function_pair(
+                tmpdir,
+                "src",
+                [("module_a.py", "process_items"), ("module_b.py", "transform_data")],
+                self._complex_func,
+            )
+            self._write_function_pair(
+                tmpdir,
+                "tests",
+                [("test_a.py", "test_check_a"), ("test_b.py", "test_check_b")],
+                self._different_complex_func,
+            )
 
             tools.index_codebase(tmpdir)
             result = tools.analyze()
@@ -1560,10 +1570,14 @@ def {name}(data):
     def test_suppress_batch_response_includes_refresh_hint(self, tools):
         """suppress_batch response should include 'Run analyze' hint."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "module_a.py"), "w") as f:
-                f.write(self._complex_func("process_items"))
-            with open(os.path.join(tmpdir, "module_b.py"), "w") as f:
-                f.write(self._complex_func("transform_data"))
+            self._write_files(
+                tmpdir,
+                "",
+                [
+                    ("module_a.py", self._complex_func("process_items")),
+                    ("module_b.py", self._complex_func("transform_data")),
+                ],
+            )
 
             tools.index_codebase(tmpdir)
             result = tools.analyze()
@@ -1580,10 +1594,18 @@ def {name}(data):
 class TestStatusTool:
     """Tests for the astrograph_status tool."""
 
-    def test_status_idle(self, tools):
-        """Status should return idle when no codebase is indexed."""
-        result = tools.status()
-        assert "idle" in result.text
+    @pytest.mark.parametrize(
+        ("method_name", "expected"),
+        [
+            ("status", "idle"),
+            ("check_staleness", "No code indexed"),
+            ("metadata_recompute_baseline", "No codebase has been indexed"),
+        ],
+    )
+    def test_empty_index_tool_responses(self, tools, method_name, expected):
+        """Tools that require indexed data return clear empty-index responses."""
+        result = getattr(tools, method_name)()
+        assert expected in result.text
 
     def test_status_ready_after_indexing(self, tools, sample_python_file):
         """Status should return ready after indexing."""
@@ -1595,12 +1617,7 @@ class TestStatusTool:
     def test_status_during_background_indexing(self):
         """Status should return indexing state when background indexing is running."""
         tools = CodeStructureTools()
-        # Simulate background indexing in progress
-        tools._bg_index_done.clear()
-        result = tools.status()
-        assert "indexing" in result.text
-        # Clean up
-        tools._bg_index_done.set()
+        _assert_status_reports_indexing(tools)
 
     def test_call_tool_status(self, tools, sample_python_file):
         """Test call_tool dispatch for status."""
@@ -1636,20 +1653,13 @@ def transform_data(data):
     return output
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
 
             # Suppress a hash
-            import re
-
-            analyze_result = tools.analyze()
-            details = _get_analyze_details(tools, analyze_result)
-            match = re.search(r'suppress\(wl_hash="([^"]+)"\)', details)
-            if match:
-                tools.suppress(match.group(1))
+            _suppress_first_hash_from_analysis(tools)
 
             # Verify persistence exists
             persistence_path = os.path.join(tmpdir, PERSISTENCE_DIR)
@@ -1673,8 +1683,7 @@ def transform_data(data):
         """After erase, re-indexing should work from scratch."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
@@ -1695,11 +1704,6 @@ def transform_data(data):
 class TestMetadataRecomputeBaseline:
     """Tests for the astrograph_metadata_recompute_baseline tool."""
 
-    def test_recompute_no_indexed_path(self, tools):
-        """Recompute when nothing has been indexed."""
-        result = tools.metadata_recompute_baseline()
-        assert "No codebase has been indexed" in result.text
-
     def test_recompute_rebuilds_from_scratch(self):
         """Recompute should erase and rebuild the full index."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1719,20 +1723,13 @@ def transform_data(data):
     return output
 """
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write(code)
+            Path(file1).write_text(code)
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
 
             # Suppress a hash
-            import re
-
-            analyze_result = tools.analyze()
-            details = _get_analyze_details(tools, analyze_result)
-            match = re.search(r'suppress\(wl_hash="([^"]+)"\)', details)
-            if match:
-                tools.suppress(match.group(1))
+            _suppress_first_hash_from_analysis(tools)
 
             # Recompute baseline
             result = tools.metadata_recompute_baseline()
@@ -1755,8 +1752,7 @@ def transform_data(data):
         """Test call_tool dispatch for metadata_recompute_baseline."""
         with tempfile.TemporaryDirectory() as tmpdir:
             file1 = os.path.join(tmpdir, "file1.py")
-            with open(file1, "w") as f:
-                f.write("def foo(): pass")
+            Path(file1).write_text("def foo(): pass")
 
             tools = CodeStructureTools()
             tools.index_codebase(tmpdir)
@@ -1768,20 +1764,13 @@ def transform_data(data):
 class TestResourceHandlers:
     """Tests for the resource list handlers (Codex compatibility)."""
 
+    @pytest.mark.parametrize(
+        "_description",
+        ["resources/list", "resources/templates/list"],
+    )
     @pytest.mark.asyncio
-    async def test_resource_list_returns_empty(self):
-        """resources/list should return an empty list, not method-not-found."""
-        server = create_server()
-        # The server should have a list_resources handler that returns []
-        # We test it indirectly via the handler registration
-        assert server is not None
-        # Verify the handlers are registered by checking the server object
-        # The MCP Server registers handlers internally; we verify the server
-        # was created without errors and resource handlers exist.
-
-    @pytest.mark.asyncio
-    async def test_resource_template_list_returns_empty(self):
-        """resources/templates/list should return an empty list, not method-not-found."""
+    async def test_resource_handlers_registered(self, _description):
+        """Resource handlers are registered and server creation succeeds."""
         server = create_server()
         assert server is not None
 
@@ -1793,8 +1782,7 @@ class TestWorkspaceEnvVar:
         """Setting ASTROGRAPH_WORKSPACE to a valid dir should trigger auto-index."""
         with tempfile.TemporaryDirectory() as tmpdir:
             py_file = os.path.join(tmpdir, "mod.py")
-            with open(py_file, "w") as f:
-                f.write("def hello(): return 42\n")
+            Path(py_file).write_text("def hello(): return 42\n")
 
             with patch.dict(os.environ, {"ASTROGRAPH_WORKSPACE": tmpdir}):
                 tools = CodeStructureTools()
@@ -1804,17 +1792,10 @@ class TestWorkspaceEnvVar:
                 assert len(tools.index.entries) > 0
                 tools.close()
 
-    def test_workspace_env_var_empty_ignored(self):
-        """Empty ASTROGRAPH_WORKSPACE should not trigger auto-index."""
-        with patch.dict(os.environ, {"ASTROGRAPH_WORKSPACE": ""}):
-            tools = CodeStructureTools()
-            # Should be idle (no auto-index triggered)
-            result = tools.status()
-            assert "idle" in result.text
-
-    def test_workspace_env_var_nonexistent_ignored(self):
-        """ASTROGRAPH_WORKSPACE pointing to nonexistent dir should not trigger auto-index."""
-        with patch.dict(os.environ, {"ASTROGRAPH_WORKSPACE": "/nonexistent/path/xyz"}):
+    @pytest.mark.parametrize("workspace", ["", "/nonexistent/path/xyz"])
+    def test_workspace_env_var_ignored_values(self, workspace):
+        """Invalid ASTROGRAPH_WORKSPACE values should not trigger auto-index."""
+        with patch.dict(os.environ, {"ASTROGRAPH_WORKSPACE": workspace}):
             tools = CodeStructureTools()
             result = tools.status()
             assert "idle" in result.text
@@ -1827,8 +1808,7 @@ class TestStartupWorkspaceDetection:
         """Without ASTROGRAPH_WORKSPACE, PWD should be used when cwd is '/'."""
         with tempfile.TemporaryDirectory() as tmpdir:
             py_file = os.path.join(tmpdir, "mod.py")
-            with open(py_file, "w") as f:
-                f.write("def hello(): return 42\n")
+            Path(py_file).write_text("def hello(): return 42\n")
 
             with patch.dict(os.environ, {"PWD": tmpdir}, clear=False):
                 os.environ.pop("ASTROGRAPH_WORKSPACE", None)
@@ -1843,8 +1823,7 @@ class TestStartupWorkspaceDetection:
         """Without ASTROGRAPH_WORKSPACE/PWD, cwd should be used."""
         with tempfile.TemporaryDirectory() as tmpdir:
             py_file = os.path.join(tmpdir, "mod.py")
-            with open(py_file, "w") as f:
-                f.write("def hello(): return 42\n")
+            Path(py_file).write_text("def hello(): return 42\n")
 
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("ASTROGRAPH_WORKSPACE", None)
@@ -1875,15 +1854,7 @@ class TestBlockingDuringIndexing:
         """Analyze should wait for background indexing, then report no index."""
         tools = CodeStructureTools()
         tools._bg_index_done.clear()
-
-        # Simulate background finishing shortly
-        def finish_bg():
-            time.sleep(0.05)
-            tools._bg_index_done.set()
-
-        import threading
-
-        threading.Thread(target=finish_bg, daemon=True).start()
+        _start_background_index_completion(tools)
         result = tools.analyze()
         # After waiting, empty index → "No code indexed"
         assert "No code indexed" in result.text
@@ -1892,21 +1863,6 @@ class TestBlockingDuringIndexing:
         """Check should wait for background indexing, then report no index."""
         tools = CodeStructureTools()
         tools._bg_index_done.clear()
-
-        def finish_bg():
-            time.sleep(0.05)
-            tools._bg_index_done.set()
-
-        import threading
-
-        threading.Thread(target=finish_bg, daemon=True).start()
+        _start_background_index_completion(tools)
         result = tools.check("def foo(): pass")
         assert "No code indexed" in result.text
-
-    def test_status_returns_immediately_during_indexing(self):
-        """Status should return indexing state without blocking."""
-        tools = CodeStructureTools()
-        tools._bg_index_done.clear()
-        result = tools.status()
-        assert "indexing" in result.text
-        tools._bg_index_done.set()

@@ -378,6 +378,13 @@ _CMP_OP_LABELS = frozenset(
 )
 _UNARY_OP_LABELS = frozenset({"UAdd", "USub", "Not", "Invert"})
 _BOOL_OP_LABELS = frozenset({"And", "Or"})
+# Operator leaf labels mapped to normalized category labels
+_OPERATOR_LABEL_GROUPS = (
+    (_BINARY_OP_LABELS, "BinaryOp"),
+    (_CMP_OP_LABELS, "CmpOp"),
+    (_UNARY_OP_LABELS, "UnaryOp"),
+    (_BOOL_OP_LABELS, "BoolOperator"),
+)
 # Parent node prefixes whose operator suffix should be stripped
 _PARENT_OP_PREFIXES = frozenset({"BinOp", "UnaryOp", "BoolOp", "Compare", "AugAssign"})
 
@@ -390,21 +397,15 @@ def _normalize_label(label: str) -> str:
     the same graph hash.
     """
     # Operator leaf nodes → normalized category
-    if label in _BINARY_OP_LABELS:
-        return "BinaryOp"
-    if label in _CMP_OP_LABELS:
-        return "CmpOp"
-    if label in _UNARY_OP_LABELS:
-        return "UnaryOp"
-    if label in _BOOL_OP_LABELS:
-        return "BoolOperator"
+    for labels, normalized in _OPERATOR_LABEL_GROUPS:
+        if label in labels:
+            return normalized
 
     # Parent operator nodes: strip operator suffix after colon
     # e.g., "BinOp:Add" → "BinOp", "Compare:Eq_NotEq" → "Compare"
     if ":" in label:
         prefix = label.split(":", 1)[0]
-        if prefix in _PARENT_OP_PREFIXES:
-            return prefix
+        return prefix if prefix in _PARENT_OP_PREFIXES else label
 
     # All other labels unchanged (including "Constant:int")
     return label

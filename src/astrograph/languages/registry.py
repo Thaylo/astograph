@@ -60,13 +60,12 @@ class LanguageRegistry:
 
     def _ensure_builtins(self) -> None:
         """Register built-in plugins on first access."""
-        if self._initialized:
-            return
-        self._initialized = True
+        if not self._initialized:
+            self._initialized = True
 
-        from .python_plugin import PythonPlugin
+            from .python_plugin import PythonPlugin
 
-        self.register(PythonPlugin())
+            self.register(PythonPlugin())
 
     def register(self, plugin: LanguagePlugin) -> None:
         """
@@ -95,14 +94,13 @@ class LanguageRegistry:
         """Get the appropriate plugin for a file based on its extension."""
         ext = Path(path).suffix
         language_id = self._extension_map.get(ext)
-        if language_id is None:
-            return None
-        return self._plugins.get(language_id)
+        return self._plugins.get(language_id) if language_id else None
 
     @property
     def supported_extensions(self) -> frozenset[str]:
         """Union of all registered file extensions."""
-        return frozenset(self._extension_map.keys())
+        extensions = set(self._extension_map)
+        return frozenset(extensions)
 
     @property
     def skip_dirs(self) -> frozenset[str]:
@@ -114,5 +112,7 @@ class LanguageRegistry:
 
     @property
     def registered_languages(self) -> list[str]:
-        """List of registered language IDs."""
-        return list(self._plugins.keys())
+        """List of registered language IDs in stable sorted order."""
+        languages = list(self._plugins)
+        languages.sort()
+        return languages

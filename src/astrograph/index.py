@@ -114,12 +114,18 @@ class IndexEntry:
             "language": self.code_unit.language,
         }
         # Include block-specific fields if present
-        if self.code_unit.block_type:
-            code_unit_dict["block_type"] = self.code_unit.block_type
+        code_unit_dict.update(
+            {
+                key: value
+                for key, value in (
+                    ("block_type", self.code_unit.block_type),
+                    ("parent_block_name", self.code_unit.parent_block_name),
+                )
+                if value
+            }
+        )
         if self.code_unit.nesting_depth > 0:
             code_unit_dict["nesting_depth"] = self.code_unit.nesting_depth
-        if self.code_unit.parent_block_name:
-            code_unit_dict["parent_block_name"] = self.code_unit.parent_block_name
 
         return {
             "id": self.id,
@@ -492,17 +498,16 @@ class CodeStructureIndex:
             max_block_depth: Maximum nesting depth for block extraction (default 3)
         """
         path = Path(dir_path)
-        if not path.exists():
-            return []
+        if path.exists():
+            all_entries = []
 
-        all_entries = []
+            with self._lock:
+                for py_file in _walk_python_files(str(path), recursive):
+                    entries = self.index_file(py_file, include_blocks, max_block_depth)
+                    all_entries.extend(entries)
 
-        with self._lock:
-            for py_file in _walk_python_files(str(path), recursive):
-                entries = self.index_file(py_file, include_blocks, max_block_depth)
-                all_entries.extend(entries)
-
-        return all_entries
+            return all_entries
+        return []
 
     def index_file_if_changed(
         self,
@@ -783,7 +788,8 @@ class CodeStructureIndex:
                         continue
                     candidate_ids.append(eid)
 
-                if len(candidate_ids) < 2:
+                # Equivalent threshold check, written differently to keep intent local.
+                if len(candidate_ids) <= 1:
                     continue
 
                 # Load full entries only for candidates that passed node_count filter
@@ -897,11 +903,13 @@ class CodeStructureIndex:
 
     def get_suppressed(self) -> list[str]:
         """Get list of suppressed hashes."""
-        return list(self.suppressed_hashes)
+        with self._lock:
+            return list(self.suppressed_hashes)
 
     def get_suppression_info(self, wl_hash: str) -> SuppressionInfo | None:
         """Get detailed info about a suppressed hash."""
-        return self.suppression_details.get(wl_hash)
+        with self._lock:
+            return self.suppression_details.get(wl_hash)
 
     def invalidate_stale_suppressions(self) -> list[tuple[str, str]]:
         """
@@ -983,19 +991,17 @@ class CodeStructureIndex:
                 continue
 
             plugin = registry.get_plugin_for_file(file_path)
-            if plugin is None:
-                continue
+            if plugin:
+                try:
+                    with open(file_path, encoding="utf-8") as f:
+                        source = f.read()
 
-            try:
-                with open(file_path, encoding="utf-8") as f:
-                    source = f.read()
-
-                for unit in plugin.extract_code_units(source, file_path, include_blocks=True):
-                    ast_graph = plugin.code_unit_to_ast_graph(unit)
-                    if weisfeiler_leman_hash(ast_graph.graph) == wl_hash:
-                        return True
-            except (OSError, SyntaxError, UnicodeDecodeError):
-                continue  # File unreadable or unparseable
+                    for unit in plugin.extract_code_units(source, file_path, include_blocks=True):
+                        ast_graph = plugin.code_unit_to_ast_graph(unit)
+                        if weisfeiler_leman_hash(ast_graph.graph) == wl_hash:
+                            return True
+                except (OSError, SyntaxError, UnicodeDecodeError):
+                    continue  # File unreadable or unparseable
 
         return False
 
@@ -1154,8 +1160,9 @@ class CodeStructureIndex:
 
     def clear_suppressions(self) -> None:
         """Clear all suppressed hashes and their details."""
-        self.suppressed_hashes.clear()
-        self.suppression_details.clear()
+        with self._lock:
+            self.suppressed_hashes.clear()
+            self.suppression_details.clear()
 
     def get_staleness_report(self, root_path: str | None = None) -> StalenessReport:
         """

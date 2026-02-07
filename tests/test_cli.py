@@ -9,6 +9,11 @@ import pytest
 from astrograph import cli
 
 
+def _run_cli(argv: list[str]) -> None:
+    with patch.object(sys, "argv", argv):
+        cli.main()
+
+
 @pytest.fixture
 def sample_dir(tmp_path):
     """Create a sample directory with Python files."""
@@ -50,14 +55,12 @@ class TestIndexCommand:
     def test_index_path(self, fixture_name, request, capsys):
         """Index command should work with both files and directories."""
         path = request.getfixturevalue(fixture_name)
-        with patch.object(sys, "argv", ["cli", "index", str(path)]):
-            cli.main()
+        _run_cli(["cli", "index", str(path)])
         captured = capsys.readouterr()
         assert "Indexed" in captured.out
 
     def test_index_no_recursive(self, sample_dir, capsys):
-        with patch.object(sys, "argv", ["cli", "index", str(sample_dir), "--no-recursive"]):
-            cli.main()
+        _run_cli(["cli", "index", str(sample_dir), "--no-recursive"])
         captured = capsys.readouterr()
         assert "Indexed" in captured.out
 
@@ -66,28 +69,24 @@ class TestDuplicatesCommand:
     """Tests for the duplicates command."""
 
     def test_find_duplicates(self, sample_dir, capsys):
-        with patch.object(sys, "argv", ["cli", "duplicates", str(sample_dir)]):
-            cli.main()
+        _run_cli(["cli", "duplicates", str(sample_dir)])
         captured = capsys.readouterr()
         # Should find calculate/compute as duplicates or show no duplicates
         assert captured.out
 
     def test_find_duplicates_json(self, sample_dir, capsys):
-        with patch.object(sys, "argv", ["cli", "duplicates", str(sample_dir), "--json"]):
-            cli.main()
+        _run_cli(["cli", "duplicates", str(sample_dir), "--json"])
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert "duplicate_groups" in data
 
     def test_find_duplicates_min_nodes(self, sample_dir, capsys):
-        with patch.object(sys, "argv", ["cli", "duplicates", str(sample_dir), "--min-nodes", "10"]):
-            cli.main()
+        _run_cli(["cli", "duplicates", str(sample_dir), "--min-nodes", "10"])
         captured = capsys.readouterr()
         assert captured.out
 
     def test_find_duplicates_verify(self, sample_dir, capsys):
-        with patch.object(sys, "argv", ["cli", "duplicates", str(sample_dir), "--verify"]):
-            cli.main()
+        _run_cli(["cli", "duplicates", str(sample_dir), "--verify"])
         captured = capsys.readouterr()
         assert captured.out
 
@@ -102,8 +101,7 @@ def func2(x):
     return x
 """
         )
-        with patch.object(sys, "argv", ["cli", "duplicates", str(tmp_path)]):
-            cli.main()
+        _run_cli(["cli", "duplicates", str(tmp_path)])
         captured = capsys.readouterr()
         assert captured.out
 
@@ -112,8 +110,7 @@ class TestCheckCommand:
     """Tests for the check command."""
 
     def test_check_similar(self, sample_dir, sample_file, capsys):
-        with patch.object(sys, "argv", ["cli", "check", str(sample_dir), str(sample_file)]):
-            cli.main()
+        _run_cli(["cli", "check", str(sample_dir), str(sample_file)])
         captured = capsys.readouterr()
         assert captured.out
 
@@ -160,8 +157,7 @@ class TestCompareCommand:
         file1.write_text("def f(x): return x + 1")
         file2.write_text("def g(y): return y + 1")
 
-        with patch.object(sys, "argv", ["cli", "compare", str(file1), str(file2)]):
-            cli.main()
+        _run_cli(["cli", "compare", str(file1), str(file2)])
         captured = capsys.readouterr()
         assert "Isomorphic" in captured.out
 

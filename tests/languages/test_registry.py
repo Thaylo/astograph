@@ -28,17 +28,18 @@ class TestLanguageRegistry:
         registry = LanguageRegistry.get()
         assert "python" in registry.registered_languages
 
-    def test_get_plugin_for_python_file(self):
-        """Routes .py files to Python plugin."""
+    @pytest.mark.parametrize(
+        "resolver",
+        [
+            lambda registry: registry.get_plugin_for_file("src/main.py"),
+            lambda registry: registry.get_plugin_for_file("src/types.pyi"),
+            lambda registry: registry.get_plugin("python"),
+        ],
+    )
+    def test_get_python_plugin(self, resolver):
+        """Python plugin is retrievable by file extension and language ID."""
         registry = LanguageRegistry.get()
-        plugin = registry.get_plugin_for_file("src/main.py")
-        assert plugin is not None
-        assert plugin.language_id == "python"
-
-    def test_get_plugin_for_pyi_file(self):
-        """Routes .pyi files to Python plugin."""
-        registry = LanguageRegistry.get()
-        plugin = registry.get_plugin_for_file("src/types.pyi")
+        plugin = resolver(registry)
         assert plugin is not None
         assert plugin.language_id == "python"
 
@@ -48,12 +49,18 @@ class TestLanguageRegistry:
         assert registry.get_plugin_for_file("style.css") is None
         assert registry.get_plugin_for_file("data.json") is None
 
-    def test_supported_extensions(self):
-        """Python extensions are in supported set."""
+    @pytest.mark.parametrize(
+        ("collection", "expected"),
+        [
+            ("supported_extensions", (".py", ".pyi")),
+            ("skip_dirs", ("__pycache__", ".mypy_cache")),
+        ],
+    )
+    def test_python_registry_collections(self, collection, expected):
+        """Python-related registry collections include expected values."""
         registry = LanguageRegistry.get()
-        exts = registry.supported_extensions
-        assert ".py" in exts
-        assert ".pyi" in exts
+        values = getattr(registry, collection)
+        assert set(expected).issubset(set(values))
 
     def test_skip_dirs_includes_common(self):
         """Skip dirs include common directories."""
@@ -63,29 +70,14 @@ class TestLanguageRegistry:
         assert "node_modules" in skip
         assert ".metadata_astrograph" in skip
 
-    def test_skip_dirs_includes_python(self):
-        """Skip dirs include Python-specific directories."""
-        registry = LanguageRegistry.get()
-        skip = registry.skip_dirs
-        assert "__pycache__" in skip
-        assert ".mypy_cache" in skip
-
     def test_extension_conflict(self):
         """Registering conflicting extension raises ValueError."""
         registry = LanguageRegistry.get()
 
         class ConflictPlugin(BaseLanguagePlugin):
-            @property
-            def language_id(self):
-                return "conflict"
-
-            @property
-            def file_extensions(self):
-                return frozenset({".py"})  # Conflicts with Python
-
-            @property
-            def skip_dirs(self):
-                return frozenset()
+            language_id = "conflict"
+            file_extensions = frozenset({".py"})  # Conflicts with Python
+            skip_dirs = frozenset()
 
         with pytest.raises(ValueError, match="already registered"):
             registry.register(ConflictPlugin())
@@ -95,17 +87,9 @@ class TestLanguageRegistry:
         registry = LanguageRegistry.get()
 
         class MockPlugin(BaseLanguagePlugin):
-            @property
-            def language_id(self):
-                return "mock"
-
-            @property
-            def file_extensions(self):
-                return frozenset({".mock"})
-
-            @property
-            def skip_dirs(self):
-                return frozenset({"mock_cache"})
+            language_id = "mock"
+            file_extensions = frozenset({".mock"})
+            skip_dirs = frozenset({"mock_cache"})
 
         registry.register(MockPlugin())
         assert "mock" in registry.registered_languages
@@ -113,12 +97,12 @@ class TestLanguageRegistry:
         assert "mock_cache" in registry.skip_dirs
         assert registry.get_plugin_for_file("test.mock") is not None
 
-    def test_get_plugin_by_id(self):
-        """Can retrieve plugin by language ID."""
+    def test_registered_languages_sorted(self):
+        """Registered language list is stable and sorted."""
         registry = LanguageRegistry.get()
-        plugin = registry.get_plugin("python")
-        assert plugin is not None
-        assert plugin.language_id == "python"
+
+        languages = registry.registered_languages
+        assert languages == sorted(languages)
 
     def test_get_nonexistent_plugin(self):
         """Returns None for nonexistent language."""
@@ -136,7 +120,5 @@ class TestLanguagePluginProtocol:
 
     def test_base_plugin_not_protocol(self):
         """Raw BaseLanguagePlugin doesn't satisfy protocol (abstract methods)."""
-        # BaseLanguagePlugin itself raises NotImplementedError on abstract methods
         plugin = BaseLanguagePlugin()
-        with pytest.raises(NotImplementedError):
-            _ = plugin.language_id
+        pytest.raises(NotImplementedError, getattr, plugin, "language_id")

@@ -121,9 +121,6 @@ class EntryStore:
     def __len__(self) -> int:
         return len(self._all_ids)
 
-    def __bool__(self) -> bool:
-        return bool(self._all_ids)
-
     def __iter__(self) -> Iterator[str]:
         return iter(self._all_ids)
 
@@ -181,7 +178,10 @@ class EntryStore:
 
     def get_meta(self, eid: str) -> EntryMeta | None:
         """Get full hot metadata for bucket cleanup in remove_file()."""
-        return self._meta.get(eid)
+        try:
+            return self._meta[eid]
+        except KeyError:
+            return None
 
     # ------------------------------------------------------------------
     # Bulk loading
@@ -209,7 +209,7 @@ class EntryStore:
     @property
     def total_count(self) -> int:
         """Total number of entries (cached + evicted)."""
-        return len(self._all_ids)
+        return len(self)
 
     # ------------------------------------------------------------------
     # Clear
@@ -241,17 +241,14 @@ class EntryStore:
 
     def _maybe_evict(self) -> None:
         """Evict oldest entries if over the limit."""
-        if self._bulk_loading:
-            return
-        self._trim_cache()
+        if not self._bulk_loading:
+            self._trim_cache()
 
     def _trim_cache(self) -> None:
         """Trim the cache to max_resident size."""
         if self._max_resident <= 0:
             return  # Unlimited
-        if self._persistence is None:
-            return  # No eviction without persistence
-
-        while len(self._cache) > self._max_resident:
-            # Pop oldest (FIFO end of OrderedDict)
-            self._cache.popitem(last=False)
+        if self._persistence is not None:
+            while len(self._cache) > self._max_resident:
+                # Pop oldest (FIFO end of OrderedDict)
+                self._cache.popitem(last=False)

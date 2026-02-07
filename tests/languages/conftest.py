@@ -8,8 +8,11 @@ from astrograph.languages.registry import LanguageRegistry
 
 @pytest.fixture
 def python_plugin():
-    """Create a PythonPlugin instance."""
-    return PythonPlugin()
+    """Get Python plugin through registry."""
+    plugin = LanguageRegistry.get().get_plugin("python")
+    assert plugin is not None
+    assert isinstance(plugin, PythonPlugin)
+    return plugin
 
 
 @pytest.fixture(params=["python"])

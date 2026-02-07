@@ -468,14 +468,18 @@ class SQLitePersistence:
 
         cursor = self.conn.execute("SELECT data FROM entries WHERE id = ?", (entry_id,))
         row = cursor.fetchone()
-        if row is None:
-            return None
-        return IndexEntry.from_dict(json.loads(row["data"]))
+        return IndexEntry.from_dict(json.loads(row["data"])) if row is not None else None
+
+    @staticmethod
+    def _iter_decoded_entries(rows: list[sqlite3.Row]) -> Iterator[tuple[str, "IndexEntry"]]:
+        """Decode DB rows (id, json) into IndexEntry tuples."""
+        from .index import IndexEntry
+
+        for row in rows:
+            yield row["id"], IndexEntry.from_dict(json.loads(row["data"]))
 
     def get_entries_batch(self, entry_ids: set[str]) -> Iterator[tuple[str, "IndexEntry"]]:
         """Load multiple entries by ID (batch lookup for iteration)."""
-        from .index import IndexEntry
-
         if not entry_ids:
             return
 
@@ -489,16 +493,12 @@ class SQLitePersistence:
                 f"SELECT id, data FROM entries WHERE id IN ({placeholders})",  # noqa: S608
                 chunk,
             )
-            for row in cursor.fetchall():
-                yield row["id"], IndexEntry.from_dict(json.loads(row["data"]))
+            yield from self._iter_decoded_entries(cursor.fetchall())
 
     def iter_entries(self) -> Iterator[tuple[str, "IndexEntry"]]:
         """Stream all entries from the database."""
-        from .index import IndexEntry
-
         cursor = self.conn.execute("SELECT id, data FROM entries")
-        for row in cursor.fetchall():
-            yield row["id"], IndexEntry.from_dict(json.loads(row["data"]))
+        yield from self._iter_decoded_entries(cursor.fetchall())
 
     # =========================================================================
     # Maintenance

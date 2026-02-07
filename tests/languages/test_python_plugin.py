@@ -45,12 +45,19 @@ class TestPluginConformance:
         """Plugin has a frozenset of skip directories."""
         assert isinstance(language_plugin.skip_dirs, frozenset)
 
-    def test_source_to_graph_returns_digraph(self, language_plugin):
-        """source_to_graph returns a networkx DiGraph."""
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "x = 1",
+            "",
+            "def ::::",
+        ],
+    )
+    def test_source_to_graph_returns_digraph(self, language_plugin, source):
+        """source_to_graph returns a networkx DiGraph for varied inputs."""
         import networkx as nx
 
-        # Use Python source since Python is the only plugin right now
-        graph = language_plugin.source_to_graph("x = 1")
+        graph = language_plugin.source_to_graph(source)
         assert isinstance(graph, nx.DiGraph)
 
     def test_source_to_graph_has_labels(self, language_plugin):
@@ -58,20 +65,6 @@ class TestPluginConformance:
         graph = language_plugin.source_to_graph("def f(): pass")
         for _, data in graph.nodes(data=True):
             assert "label" in data, "All nodes must have a 'label' attribute"
-
-    def test_empty_source_handled(self, language_plugin):
-        """Empty source code is handled gracefully."""
-        import networkx as nx
-
-        graph = language_plugin.source_to_graph("")
-        assert isinstance(graph, nx.DiGraph)
-
-    def test_syntax_error_handled(self, language_plugin):
-        """Syntax errors are handled gracefully."""
-        import networkx as nx
-
-        graph = language_plugin.source_to_graph("def ::::")
-        assert isinstance(graph, nx.DiGraph)
 
     def test_extract_code_units_returns_iterator(self, language_plugin):
         """extract_code_units returns CodeUnit objects."""
@@ -125,19 +118,12 @@ class TestBaseLanguagePlugin:
         with pytest.raises(NotImplementedError):
             plugin.source_to_graph("")
 
-    def test_base_file_extensions_raises(self):
+    @pytest.mark.parametrize("attr_name", ["file_extensions", "skip_dirs"])
+    def test_base_property_raises(self, attr_name):
         from astrograph.languages.base import BaseLanguagePlugin
 
         plugin = BaseLanguagePlugin()
-        with pytest.raises(NotImplementedError):
-            _ = plugin.file_extensions
-
-    def test_base_skip_dirs_raises(self):
-        from astrograph.languages.base import BaseLanguagePlugin
-
-        plugin = BaseLanguagePlugin()
-        with pytest.raises(NotImplementedError):
-            _ = plugin.skip_dirs
+        pytest.raises(NotImplementedError, getattr, plugin, attr_name)
 
 
 class TestBaseCodeUnitToAstGraph:
@@ -150,17 +136,9 @@ class TestBaseCodeUnitToAstGraph:
         from astrograph.languages.base import BaseLanguagePlugin, CodeUnit
 
         class MinimalPlugin(BaseLanguagePlugin):
-            @property
-            def language_id(self):
-                return "minimal"
-
-            @property
-            def file_extensions(self):
-                return frozenset({".min"})
-
-            @property
-            def skip_dirs(self):
-                return frozenset()
+            language_id = "minimal"
+            file_extensions = frozenset({".min"})
+            skip_dirs = frozenset()
 
             def extract_code_units(
                 self, _source, _file_path="", _include_blocks=True, _max_block_depth=3
@@ -197,22 +175,12 @@ class TestBaseCodeUnitToAstGraph:
         from astrograph.languages.base import BaseLanguagePlugin, CodeUnit
 
         class EmptyPlugin(BaseLanguagePlugin):
-            @property
-            def language_id(self):
-                return "empty"
+            language_id = "empty"
+            file_extensions = frozenset({".emp"})
+            skip_dirs = frozenset()
 
-            @property
-            def file_extensions(self):
-                return frozenset({".emp"})
-
-            @property
-            def skip_dirs(self):
-                return frozenset()
-
-            def extract_code_units(
-                self, _source, _file_path="", _include_blocks=True, _max_block_depth=3
-            ):
-                return iter([])
+            def extract_code_units(self, *_args, **_kwargs):
+                return iter(())
 
             def source_to_graph(self, _source, _normalize_ops=False):
                 return nx.DiGraph()
@@ -336,5 +304,4 @@ class TestPythonPluginFunctions:
         """Extracted code units have language='python'."""
         source = "def f(): pass"
         units = list(extract_code_units(source, "test.py"))
-        for u in units:
-            assert u.language == "python"
+        assert all(u.language == "python" for u in units)

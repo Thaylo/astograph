@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .cloud_detect import check_and_warn_cloud_sync, is_cloud_synced_path
+from .context import CloseOnExitMixin
 from .index import CodeStructureIndex, DuplicateGroup, batch_hash_operation
 from .persistence import SQLitePersistence
 
@@ -65,7 +66,8 @@ class AnalysisCache:
 
     def is_valid(self) -> bool:
         """Check if cache is valid."""
-        return cast(bool, self._read_attr("_valid"))
+        with self._lock:
+            return self._valid
 
     def get(self) -> tuple[list[DuplicateGroup], list[DuplicateGroup], list[DuplicateGroup]] | None:
         """Get cached results if valid."""
@@ -98,7 +100,7 @@ class AnalysisCache:
         return cast(float, self._read_attr("_computed_at"))
 
 
-class EventDrivenIndex:
+class EventDrivenIndex(CloseOnExitMixin):
     """
     Event-driven code structure index.
 
@@ -213,12 +215,6 @@ class EventDrivenIndex:
             self._persistence.close()
             self._persistence = None
 
-    def __enter__(self) -> "EventDrivenIndex":
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        self.close()
-
     # =========================================================================
     # File Event Handlers
     # =========================================================================
@@ -290,6 +286,7 @@ class EventDrivenIndex:
     def _recompute_analysis(self) -> None:
         """Recompute analysis in background thread."""
         if self._shutdown.is_set():
+            logger.debug("Skipping analysis recompute during shutdown")
             return
 
         try:
@@ -423,33 +420,30 @@ class EventDrivenIndex:
 
     def _persist_suppression(self, wl_hash: str) -> None:
         """Persist a single suppression if persistence is enabled."""
-        if self._persistence is None:
-            return
-        info = self.index.get_suppression_info(wl_hash)
-        if info:
-            self._persistence.save_suppression(info)
+        if self._persistence:
+            info = self.index.get_suppression_info(wl_hash)
+            if info:
+                self._persistence.save_suppression(info)
 
     def _persist_unsuppression(self, wl_hash: str) -> None:
         """Persist a single unsuppression if persistence is enabled."""
-        if self._persistence is None:
-            return
-        self._persistence.delete_suppression(wl_hash)
+        if self._persistence:
+            self._persistence.delete_suppression(wl_hash)
 
     def _toggle_suppression(self, wl_hash: str, suppress: bool, reason: str | None = None) -> bool:
         """Toggle suppression for one hash and persist/cache-update on change."""
         success = (
             self.index.suppress(wl_hash, reason) if suppress else self.index.unsuppress(wl_hash)
         )
-        if not success:
-            return False
+        if success:
+            if suppress:
+                self._persist_suppression(wl_hash)
+            else:
+                self._persist_unsuppression(wl_hash)
 
-        if suppress:
-            self._persist_suppression(wl_hash)
-        else:
-            self._persist_unsuppression(wl_hash)
-
-        self._invalidate_cache_and_recompute()
-        return True
+            self._invalidate_cache_and_recompute()
+            return True
+        return False
 
     def _run_batch_hash_operation(
         self,

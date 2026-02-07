@@ -32,14 +32,16 @@ def _make_initialize_request(id: int = 1) -> dict:
 class _FakeStream:
     """Fake async file-like stream for testing."""
 
-    def __init__(self, data: bytes) -> None:
+    def __init__(self, data: bytes, chunk_size: int | None = None) -> None:
         self._data = data
         self._pos = 0
+        self._chunk_size = chunk_size
 
     async def read(self, max_bytes: int = 65536) -> bytes:
         if self._pos >= len(self._data):
             return b""
-        chunk = self._data[self._pos : self._pos + max_bytes]
+        limit = max_bytes if self._chunk_size is None else min(max_bytes, self._chunk_size)
+        chunk = self._data[self._pos : self._pos + limit]
         self._pos += len(chunk)
         return chunk
 
@@ -63,6 +65,17 @@ class TestStdioReader:
         body = json.dumps(_make_initialize_request()).encode("utf-8")
         msg = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
         reader = _StdioReader(_FakeStream(msg))
+        data = await reader.read_message()
+        assert reader.mode == "framed"
+        parsed = json.loads(data)
+        assert parsed["method"] == "initialize"
+
+    @pytest.mark.asyncio
+    async def test_framed_mode_detection_with_chunked_header(self):
+        """Framed detection should work even when header bytes arrive incrementally."""
+        body = json.dumps(_make_initialize_request()).encode("utf-8")
+        msg = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+        reader = _StdioReader(_FakeStream(msg, chunk_size=1))
         data = await reader.read_message()
         assert reader.mode == "framed"
         parsed = json.loads(data)

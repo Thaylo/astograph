@@ -31,7 +31,8 @@ class _StdioReader:
     async def _fill(self, min_bytes: int = 1) -> None:
         """Read more data from the stream into the buffer."""
         while len(self._buf) < min_bytes:
-            chunk = await self._stream.read(65536)
+            need = max(1, min_bytes - len(self._buf))
+            chunk = await self._stream.read(need)
             if not chunk:
                 raise EOFError("stdin closed")
             self._buf += chunk
@@ -47,11 +48,22 @@ class _StdioReader:
                 continue
             # Update buffer to stripped version
             self._buf = stripped
-            lower = stripped.lower()
-            if lower.startswith(b"content-length:"):
-                return "framed"
-            else:
+            first = stripped[:1]
+            # JSON-RPC newline mode always starts with a JSON value (object/array).
+            if first in (b"{", b"["):
                 return "newline"
+
+            # Header-framed mode may arrive in partial chunks; decide on the
+            # first non-whitespace byte to avoid waiting for full header text.
+            if first in (b"C", b"c"):
+                return "framed"
+
+            # Fallback: if it looks like an HTTP-style header line, treat as framed.
+            first_line = stripped.split(b"\n", 1)[0]
+            if b":" in first_line and first.isalpha():
+                return "framed"
+
+            return "newline"
 
     async def read_message(self) -> bytes:
         """Read and return the next complete JSON-RPC message as bytes."""
@@ -94,7 +106,8 @@ class _StdioReader:
                 header_end = self._buf.index(b"\n\n")
                 delim_len = 2
                 break
-            await self._fill()
+            # Force progress even when buffer already has partial header bytes.
+            await self._fill(len(self._buf) + 1)
 
         headers = self._buf[:header_end].decode("ascii")
         self._buf = self._buf[header_end + delim_len :]

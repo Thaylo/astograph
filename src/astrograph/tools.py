@@ -117,13 +117,18 @@ class CodeStructureTools:
         self._bg_index_done.set()  # Initially "done" (no background work)
         self._bg_index_progress: str = ""
 
-        # Auto-index /workspace at startup (Docker)
+        # Auto-index workspace at startup (Docker / Codex).
+        # ASTROGRAPH_WORKSPACE overrides the default /workspace detection,
+        # useful when cwd is unreliable (e.g. Codex launches with cwd=/).
         # Run in background so the MCP handshake completes immediately.
-        if os.path.isdir("/workspace"):
+        workspace = os.environ.get("ASTROGRAPH_WORKSPACE") or (
+            "/workspace" if os.path.isdir("/workspace") else None
+        )
+        if workspace and os.path.isdir(workspace):
             self._bg_index_done.clear()
             self._bg_index_thread = threading.Thread(
                 target=self._background_index,
-                args=("/workspace",),
+                args=(workspace,),
                 daemon=True,
             )
             self._bg_index_thread.start()

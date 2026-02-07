@@ -23,9 +23,9 @@ import signal
 import sys
 
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
+from .stdio_transport import dual_stdio_server
 from .tools import CodeStructureTools
 
 # Global tools instance
@@ -224,13 +224,21 @@ def create_server() -> Server:
         result = _tools.call_tool(internal_name, arguments)
         return [TextContent(type="text", text=result.text)]
 
+    @server.list_resources()
+    async def list_resources() -> list:
+        return []
+
+    @server.list_resource_templates()
+    async def list_resource_templates() -> list:
+        return []
+
     return server
 
 
 async def run_server() -> None:
     """Run the MCP server."""
     server = create_server()
-    async with stdio_server() as (read_stream, write_stream):
+    async with dual_stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
 

@@ -98,6 +98,58 @@ def test_probe_command_attach_tcp_endpoint_available():
     assert probe["endpoint"] == f"127.0.0.1:{port}"
 
 
+def test_probe_command_attach_tcp_endpoint_falls_back_across_address_families(monkeypatch):
+    class _FakeSocket:
+        attempts = 0
+
+        def __init__(self, _family, _socktype, _proto):
+            pass
+
+        def settimeout(self, _timeout):
+            pass
+
+        def connect(self, _sockaddr):
+            _FakeSocket.attempts += 1
+            if _FakeSocket.attempts == 1:
+                raise OSError("unreachable")
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return False
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("fdc4:f303:9324::254", 2088, 0, 0),
+            ),
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("192.168.65.254", 2088),
+            ),
+        ],
+    )
+    monkeypatch.setattr(socket, "socket", _FakeSocket)
+
+    probe = probe_command("tcp://host.docker.internal:2088")
+    assert probe["available"] is True
+    assert probe["transport"] == "tcp"
+    assert _FakeSocket.attempts == 2
+
+
 def test_auto_bind_missing_servers_accepts_attach_observations(tmp_path):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))

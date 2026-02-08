@@ -924,10 +924,18 @@ class CodeStructureTools(CloseOnExitMixin):
         self,
         *,
         statuses: list[dict[str, Any]],
+        scope_language: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build actionable setup steps that AI agents can execute directly."""
         missing = [status for status in statuses if not status.get("available")]
         missing_required = [status for status in missing if status.get("required", True)]
+        scoped = bool(scope_language)
+
+        def _with_scope(arguments: dict[str, Any]) -> dict[str, Any]:
+            if not scoped:
+                return arguments
+            return {**arguments, "language": scope_language}
+
         if not missing:
             return [
                 {
@@ -935,7 +943,7 @@ class CodeStructureTools(CloseOnExitMixin):
                     "priority": "low",
                     "title": "Re-check language server health after environment changes",
                     "tool": "astrograph_lsp_setup",
-                    "arguments": {"mode": "inspect"},
+                    "arguments": _with_scope({"mode": "inspect"}),
                 }
             ]
 
@@ -949,7 +957,7 @@ class CodeStructureTools(CloseOnExitMixin):
                     "auto_bind uses bindings/env/defaults/observations."
                 ),
                 "tool": "astrograph_lsp_setup",
-                "arguments": {"mode": "auto_bind"},
+                "arguments": _with_scope({"mode": "auto_bind"}),
             }
         ]
         host_alias_action_added = False
@@ -1033,7 +1041,7 @@ class CodeStructureTools(CloseOnExitMixin):
                             "host.docker.internal:host-gateway",
                         ],
                         "follow_up_tool": "astrograph_lsp_setup",
-                        "follow_up_arguments": {"mode": "inspect"},
+                        "follow_up_arguments": _with_scope({"mode": "inspect"}),
                     }
                 )
                 host_alias_action_added = True
@@ -1059,11 +1067,14 @@ class CodeStructureTools(CloseOnExitMixin):
                 "host_search_commands": endpoint_search_commands,
             }
             if candidates:
-                action["follow_up_tool"] = "astrograph_lsp_setup"
-                action["follow_up_arguments"] = {
+                follow_up_arguments = {
                     "mode": "auto_bind",
                     "observations": [{"language": language, "command": candidates[0]}],
                 }
+                follow_up_arguments = _with_scope(follow_up_arguments)
+
+                action["follow_up_tool"] = "astrograph_lsp_setup"
+                action["follow_up_arguments"] = follow_up_arguments
                 if bridge_example := self._bridge_example(language, candidates[0]):
                     action["docker_bridge_example"] = bridge_example
             actions.append(action)
@@ -1074,7 +1085,7 @@ class CodeStructureTools(CloseOnExitMixin):
                 "priority": "high" if missing_required else "medium",
                 "title": "Verify missing_required_languages is empty",
                 "tool": "astrograph_lsp_setup",
-                "arguments": {"mode": "inspect"},
+                "arguments": _with_scope({"mode": "inspect"}),
             }
         )
         return actions
@@ -1102,11 +1113,25 @@ class CodeStructureTools(CloseOnExitMixin):
         payload["missing_languages"] = missing
         payload["missing_required_languages"] = missing_required
         payload["bindings"] = load_lsp_bindings(workspace)
-        payload["recommended_actions"] = self._build_lsp_recommended_actions(statuses=statuses)
+        scope_language = payload.get("scope_language")
+        if not isinstance(scope_language, str):
+            scope_language = None
+
+        payload["recommended_actions"] = self._build_lsp_recommended_actions(
+            statuses=statuses,
+            scope_language=scope_language,
+        )
+
+        inspect_arguments: dict[str, Any] = {"mode": "inspect"}
+        auto_bind_arguments: dict[str, Any] = {"mode": "auto_bind"}
+        if scope_language:
+            inspect_arguments["language"] = scope_language
+            auto_bind_arguments["language"] = scope_language
+
         payload["resolution_loop"] = [
-            {"tool": "astrograph_lsp_setup", "arguments": {"mode": "inspect"}},
-            {"tool": "astrograph_lsp_setup", "arguments": {"mode": "auto_bind"}},
-            {"tool": "astrograph_lsp_setup", "arguments": {"mode": "inspect"}},
+            {"tool": "astrograph_lsp_setup", "arguments": inspect_arguments},
+            {"tool": "astrograph_lsp_setup", "arguments": auto_bind_arguments},
+            {"tool": "astrograph_lsp_setup", "arguments": inspect_arguments},
         ]
         if missing_required:
             payload["agent_directive"] = (

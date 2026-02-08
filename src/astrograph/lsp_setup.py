@@ -179,7 +179,34 @@ def _probe_attach_endpoint(endpoint: dict[str, Any], timeout: float = 0.3) -> di
 
     try:
         if transport == "tcp":
-            socket.create_connection((endpoint["host"], endpoint["port"]), timeout=timeout).close()
+            host = str(endpoint["host"])
+            port = int(endpoint["port"])
+
+            # Try all resolved addresses (IPv4/IPv6) so one failing family
+            # does not mask a reachable endpoint.
+            addrinfos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            if not addrinfos:
+                return {
+                    "available": False,
+                    "executable": None,
+                }
+
+            connected = False
+            for family, socktype, proto, _canonname, sockaddr in addrinfos:
+                try:
+                    with socket.socket(family, socktype, proto) as sock:
+                        sock.settimeout(timeout)
+                        sock.connect(sockaddr)
+                    connected = True
+                    break
+                except OSError:
+                    continue
+
+            if not connected:
+                return {
+                    "available": False,
+                    "executable": None,
+                }
         elif transport == "unix":
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 sock.settimeout(timeout)

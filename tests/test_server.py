@@ -444,6 +444,10 @@ class TestLSPSetupTool:
         assert payload["ok"] is True
         assert payload["scope_language"] == "cpp_lsp"
         assert [status["language"] for status in payload["servers"]] == ["cpp_lsp"]
+        assert payload["recommended_actions"][0]["arguments"]["language"] == "cpp_lsp"
+        assert all(
+            step["arguments"].get("language") == "cpp_lsp" for step in payload["resolution_loop"]
+        )
         assert all(
             action.get("language") in (None, "cpp_lsp") for action in payload["recommended_actions"]
         )
@@ -533,6 +537,10 @@ class TestLSPSetupTool:
             assert payload["scope_language"] == "python"
             assert payload["scope_languages"] == ["python"]
             assert all(status["language"] == "python" for status in payload["statuses"])
+            assert payload["recommended_actions"][0]["arguments"]["language"] == "python"
+            assert all(
+                step["arguments"].get("language") == "python" for step in payload["resolution_loop"]
+            )
             tools.close()
 
     def test_lsp_setup_recommended_actions_include_docker_host_alias(self, tools):

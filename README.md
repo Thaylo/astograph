@@ -58,7 +58,9 @@ Add `.mcp.json` to your project root:
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
+        "--add-host", "host.docker.internal:host-gateway",
         "-v", ".:/workspace",
+        "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph:latest"
       ]
     }
@@ -66,11 +68,41 @@ Add `.mcp.json` to your project root:
 }
 ```
 
+`--add-host host.docker.internal:host-gateway` keeps attach-based C/C++/Java flows portable across Docker setups.
+
 Multi-arch Docker image: works on both **amd64** (x86_64) and **arm64** (Apple Silicon, AWS Graviton).
 
 The codebase is auto-indexed at startup and re-indexed on file changes. Then:
 1. `astrograph_analyze()` - Find existing duplicates
 2. Use `astrograph_write` / `astrograph_edit` - They'll block duplicates automatically
+
+## C++ Journey (Docker)
+
+Use this when ASTrograph runs in Docker and `clangd` runs on the host.
+
+1. Start clean:
+   - `astrograph_metadata_erase()`
+   - `astrograph_lsp_setup(mode="unbind", language="cpp_lsp")`
+2. Start host bridge (`socat` + `clangd`) on a dedicated port (default `2088`):
+
+```bash
+PORT=2088
+PROJECT="$(pwd)"
+
+socat "TCP-LISTEN:${PORT},bind=0.0.0.0,reuseaddr,fork" \
+  "EXEC:clangd --background-index --log=error --compile-commands-dir=${PROJECT}/build --path-mappings=/workspace=${PROJECT},stderr"
+```
+
+3. Focus setup on C++ only:
+   - `astrograph_lsp_setup(mode="inspect", language="cpp_lsp")`
+   - `astrograph_lsp_setup(mode="auto_bind", language="cpp_lsp", observations=[{"language":"cpp_lsp","command":"tcp://host.docker.internal:2088"}])`
+4. Verify C++ is reachable:
+   - `astrograph_lsp_setup(mode="inspect", language="cpp_lsp")` and confirm `available=true`
+5. Run duplicate prevention on C++ code:
+   - `astrograph_analyze()`
+   - `astrograph_write(...)` / `astrograph_edit(...)`
+
+Each attach port is full-duplex LSP traffic (query + update). Keep one stable port per language (`2087` C, `2088` C++, `2089` Java).
 
 ## The Problem
 
@@ -186,7 +218,7 @@ continue with search/install/config loops instead of stopping at diagnostics.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `mode` | string | No | `inspect` | One of `inspect`, `auto_bind`, `bind`, `unbind` |
-| `language` | string | Conditionally | - | Required for `bind` and `unbind` (`python`, `javascript_lsp`, `c_lsp`, `cpp_lsp`, `java_lsp`) |
+| `language` | string | Conditionally | - | Optional filter for `inspect`/`auto_bind`; required for `bind`/`unbind` (`python`, `javascript_lsp`, `c_lsp`, `cpp_lsp`, `java_lsp`) |
 | `command` | string or string[] | Conditionally | - | Required for `bind`; executable command or attach endpoint (`tcp://host:port`, `unix:///path`) |
 | `observations` | object[] | No | - | Optional host-discovery hints used by `auto_bind` (`language` + executable command or endpoint) |
 
@@ -217,6 +249,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
+        "--add-host", "host.docker.internal:host-gateway",
         "-v", "/path/to/your/project:/workspace",
         "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph:latest"
@@ -236,6 +269,7 @@ Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 command = "docker"
 args = [
   "run", "--rm", "-i", "--pull", "always",
+  "--add-host", "host.docker.internal:host-gateway",
   "-v", "/path/to/your/project:/workspace",
   "-v", "/path/to/your/project/.metadata_astrograph:/workspace/.metadata_astrograph",
   "thaylo/astrograph:latest"
@@ -259,6 +293,7 @@ ASTrograph auto-indexes at startup using:
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
+        "--add-host", "host.docker.internal:host-gateway",
         "-v", "${workspaceFolder}:/workspace",
         "-v", "${workspaceFolder}/.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph:latest"
@@ -280,6 +315,7 @@ ASTrograph auto-indexes at startup using:
       "command": "docker",
       "args": [
         "run", "--rm", "-i", "--pull", "always",
+        "--add-host", "host.docker.internal:host-gateway",
         "-v", ".:/workspace",
         "-v", "./.metadata_astrograph:/workspace/.metadata_astrograph",
         "thaylo/astrograph:latest"

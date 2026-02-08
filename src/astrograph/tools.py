@@ -952,6 +952,7 @@ class CodeStructureTools(CloseOnExitMixin):
                 "arguments": {"mode": "auto_bind"},
             }
         ]
+        host_alias_action_added = False
 
         spec_by_language = {spec.language_id: spec for spec in bundled_lsp_specs()}
         for status in missing:
@@ -1016,6 +1017,26 @@ class CodeStructureTools(CloseOnExitMixin):
                             }
                         )
                 continue
+
+            if self._is_docker_runtime() and not host_alias_action_added:
+                actions.append(
+                    {
+                        "id": "ensure_docker_host_alias",
+                        "priority": "high",
+                        "title": "Ensure Docker can reach host.docker.internal",
+                        "why": (
+                            "Attach endpoints for C/C++/Java usually run on the host. "
+                            "Add a host alias so tcp://host.docker.internal:<port> is routable."
+                        ),
+                        "docker_run_args": [
+                            "--add-host",
+                            "host.docker.internal:host-gateway",
+                        ],
+                        "follow_up_tool": "astrograph_lsp_setup",
+                        "follow_up_arguments": {"mode": "inspect"},
+                    }
+                )
+                host_alias_action_added = True
 
             candidates = self._attach_candidate_commands(status)
             endpoint = parse_attach_endpoint(candidates[0]) if candidates else None
@@ -1121,16 +1142,18 @@ class CodeStructureTools(CloseOnExitMixin):
             spec.language_id for spec in sorted(bundled_lsp_specs(), key=lambda s: s.language_id)
         ]
 
-        def _validate_language(mode_name: str) -> ToolResult | None:
+        def _validate_language(mode_name: str, *, required: bool = False) -> ToolResult | None:
             if not language:
-                return self._lsp_setup_result(
-                    {
-                        "ok": False,
-                        "mode": mode_name,
-                        "error": f"'language' is required when mode='{mode_name}'",
-                        "supported_languages": known_languages,
-                    }
-                )
+                if required:
+                    return self._lsp_setup_result(
+                        {
+                            "ok": False,
+                            "mode": mode_name,
+                            "error": f"'language' is required when mode='{mode_name}'",
+                            "supported_languages": known_languages,
+                        }
+                    )
+                return None
 
             if get_lsp_spec(language) is None:
                 return self._lsp_setup_result(
@@ -1155,7 +1178,12 @@ class CodeStructureTools(CloseOnExitMixin):
             )
 
         if normalized_mode == "inspect":
+            if validation_error := _validate_language(normalized_mode):
+                return validation_error
+
             statuses = collect_lsp_statuses(workspace)
+            if language:
+                statuses = [status for status in statuses if status["language"] == language]
             missing = [status["language"] for status in statuses if not status["available"]]
             missing_required = [
                 status["language"]
@@ -1173,11 +1201,20 @@ class CodeStructureTools(CloseOnExitMixin):
                 "missing_required_languages": missing_required,
                 "supported_languages": known_languages,
             }
+            if language:
+                payload["scope_language"] = language
+
             if missing_required:
-                payload["next_step"] = (
-                    "Call astrograph_lsp_setup with mode='auto_bind'. "
-                    "If still missing, provide observations with language + command."
-                )
+                if language:
+                    payload["next_step"] = (
+                        "Call astrograph_lsp_setup with mode='auto_bind' and this language. "
+                        "If still missing, provide observations with language + command."
+                    )
+                else:
+                    payload["next_step"] = (
+                        "Call astrograph_lsp_setup with mode='auto_bind'. "
+                        "If still missing, provide observations with language + command."
+                    )
             elif missing:
                 payload["next_step"] = (
                     "Optional attach endpoints are currently unavailable. "
@@ -1186,7 +1223,7 @@ class CodeStructureTools(CloseOnExitMixin):
 
             if missing:
                 payload["observation_format"] = {
-                    "language": "cpp_lsp",
+                    "language": language or "cpp_lsp",
                     "command": "tcp://127.0.0.1:2088",
                 }
                 payload["observation_examples"] = [
@@ -1199,11 +1236,24 @@ class CodeStructureTools(CloseOnExitMixin):
                         "command": "tcp://127.0.0.1:2089",
                     },
                 ]
+                if not language and len(missing) > 1:
+                    payload["focus_hint"] = (
+                        "To reduce setup noise, inspect one language at a time: "
+                        "astrograph_lsp_setup(mode='inspect', language='cpp_lsp')."
+                    )
             self._inject_lsp_setup_guidance(payload, workspace=workspace)
             return self._lsp_setup_result(payload)
 
         if normalized_mode == "auto_bind":
-            outcome = auto_bind_missing_servers(workspace=workspace, observations=observations)
+            if validation_error := _validate_language(normalized_mode):
+                return validation_error
+
+            scope_languages = [language] if language else None
+            outcome = auto_bind_missing_servers(
+                workspace=workspace,
+                observations=observations,
+                languages=scope_languages,
+            )
             if outcome["changes"]:
                 LanguageRegistry.reset()
             outcome["bindings"] = load_lsp_bindings(workspace)
@@ -1214,11 +1264,13 @@ class CodeStructureTools(CloseOnExitMixin):
                     "supported_languages": known_languages,
                 }
             )
+            if language:
+                outcome["scope_language"] = language
             self._inject_lsp_setup_guidance(outcome, workspace=workspace)
             return self._lsp_setup_result(outcome)
 
         if normalized_mode == "bind":
-            if validation_error := _validate_language(normalized_mode):
+            if validation_error := _validate_language(normalized_mode, required=True):
                 return validation_error
 
             target_language = cast(str, language)
@@ -1254,7 +1306,7 @@ class CodeStructureTools(CloseOnExitMixin):
             return self._lsp_setup_result(payload)
 
         if normalized_mode == "unbind":
-            if validation_error := _validate_language(normalized_mode):
+            if validation_error := _validate_language(normalized_mode, required=True):
                 return validation_error
 
             target_language = cast(str, language)

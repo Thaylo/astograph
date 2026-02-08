@@ -152,22 +152,20 @@ class TestResolveDockerPath:
     def test_error_messages_do_not_contain_workspace(self):
         """User-facing error messages should not leak /workspace paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create and index a real file so _require_index passes
             py_file = os.path.join(tmpdir, "existing.py")
             Path(py_file).write_text("def foo(): pass\n")
 
             tools = CodeStructureTools()
-            tools.index_codebase(tmpdir)
+            with patch.object(tools, "_require_index", return_value=None):
+                # Edit a file that exists — old_string won't be found
+                result = tools.edit(py_file, "nonexistent_string_xyz", "new")
+                assert "/workspace" not in result.text
+                assert "old_string not found" in result.text
 
-            # Edit a file that exists — old_string won't be found
-            result = tools.edit(py_file, "nonexistent_string_xyz", "new")
-            assert "/workspace" not in result.text
-            assert "old_string not found" in result.text
-
-            # Write to a path that can't be created
-            result = tools.write("/nonexistent/dir/file.py", "def bar(): pass")
-            assert "/workspace" not in result.text
-            assert "Failed to write" in result.text
+                # Write to a path that can't be created
+                result = tools.write("/nonexistent/dir/file.py", "def bar(): pass")
+                assert "/workspace" not in result.text
+                assert "Failed to write" in result.text
 
 
 def _get_analyze_details(tools, result):
@@ -440,6 +438,21 @@ class TestLSPSetupTool:
         assert "recommended_actions" in payload
         assert isinstance(payload["recommended_actions"], list)
 
+    def test_lsp_setup_inspect_scoped_language(self, tools):
+        payload = json.loads(tools.lsp_setup(mode="inspect", language="cpp_lsp").text)
+
+        assert payload["ok"] is True
+        assert payload["scope_language"] == "cpp_lsp"
+        assert [status["language"] for status in payload["servers"]] == ["cpp_lsp"]
+        assert all(
+            action.get("language") in (None, "cpp_lsp") for action in payload["recommended_actions"]
+        )
+
+    def test_lsp_setup_inspect_rejects_unknown_language(self, tools):
+        payload = json.loads(tools.lsp_setup(mode="inspect", language="go_lsp").text)
+        assert payload["ok"] is False
+        assert "Unsupported language" in payload["error"]
+
     def test_lsp_setup_bind_and_unbind(self):
         with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
             os.environ,
@@ -493,6 +506,49 @@ class TestLSPSetupTool:
             assert "recommended_actions" in payload
             assert payload["agent_directive"]
             tools.close()
+
+    def test_lsp_setup_auto_bind_scoped_language(self):
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            os.environ,
+            {
+                "ASTROGRAPH_WORKSPACE": tmpdir,
+                "ASTROGRAPH_PY_LSP_COMMAND": "missing-python-lsp-xyz",
+            },
+            clear=False,
+        ):
+            tools = CodeStructureTools()
+            payload = json.loads(
+                tools.lsp_setup(
+                    mode="auto_bind",
+                    language="python",
+                    observations=[
+                        {
+                            "language": "python",
+                            "command": [sys.executable, "-m", "pylsp"],
+                        }
+                    ],
+                ).text
+            )
+
+            assert payload["scope_language"] == "python"
+            assert payload["scope_languages"] == ["python"]
+            assert all(status["language"] == "python" for status in payload["statuses"])
+            tools.close()
+
+    def test_lsp_setup_recommended_actions_include_docker_host_alias(self, tools):
+        missing_cpp_status = {
+            "language": "cpp_lsp",
+            "required": False,
+            "available": False,
+            "transport": "tcp",
+            "effective_command": ["tcp://127.0.0.1:2088"],
+            "effective_source": "default",
+            "default_command": ["tcp://127.0.0.1:2088"],
+        }
+        with patch.object(CodeStructureTools, "_is_docker_runtime", return_value=True):
+            actions = tools._build_lsp_recommended_actions(statuses=[missing_cpp_status])
+
+        assert any(action["id"] == "ensure_docker_host_alias" for action in actions)
 
 
 class TestToolResult:

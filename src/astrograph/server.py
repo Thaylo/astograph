@@ -166,7 +166,10 @@ def create_server() -> Server:
                         },
                         "language": {
                             "type": "string",
-                            "description": "Language ID for bind/unbind (python, javascript_lsp, c_lsp, cpp_lsp, java_lsp)",
+                            "description": (
+                                "Language ID filter for inspect/auto_bind and required target "
+                                "for bind/unbind (python, javascript_lsp, c_lsp, cpp_lsp, java_lsp)"
+                            ),
                         },
                         "command": {
                             "oneOf": [

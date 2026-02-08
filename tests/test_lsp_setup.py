@@ -122,3 +122,26 @@ def test_auto_bind_missing_servers_accepts_attach_observations(tmp_path):
 
     persisted = load_lsp_bindings(tmp_path)
     assert persisted["c_lsp"] == [endpoint]
+
+
+def test_auto_bind_missing_servers_scopes_languages(tmp_path):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        _host, port = server.getsockname()
+        endpoint = f"tcp://127.0.0.1:{port}"
+
+        result = auto_bind_missing_servers(
+            workspace=tmp_path,
+            languages=["cpp_lsp"],
+            observations=[
+                {
+                    "language": "cpp_lsp",
+                    "command": endpoint,
+                }
+            ],
+        )
+
+    assert result["scope_languages"] == ["cpp_lsp"]
+    assert all(status["language"] == "cpp_lsp" for status in result["statuses"])
+    assert set(result["probes"]) == {"cpp_lsp"}

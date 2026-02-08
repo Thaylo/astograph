@@ -425,16 +425,25 @@ def auto_bind_missing_servers(
     *,
     workspace: str | Path | None = None,
     observations: Iterable[dict[str, Any]] | None = None,
+    languages: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Auto-bind commands only for currently missing bundled language adapters."""
     root = _normalize_workspace_root(workspace)
     bindings = load_lsp_bindings(root)
+    language_scope = {
+        str(language_id).strip() for language_id in (languages or []) if str(language_id).strip()
+    }
+    scoped = bool(language_scope)
 
     changes: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
     probes: dict[str, list[dict[str, Any]]] = {}
 
-    for spec in bundled_lsp_specs():
+    specs = [
+        spec for spec in bundled_lsp_specs() if not scoped or spec.language_id in language_scope
+    ]
+
+    for spec in specs:
         effective_command, _source = resolve_lsp_command(
             language_id=spec.language_id,
             default_command=spec.default_command,
@@ -489,11 +498,16 @@ def auto_bind_missing_servers(
     if changes:
         bindings_path = str(save_lsp_bindings(bindings, root))
 
+    statuses = collect_lsp_statuses(root)
+    if scoped:
+        statuses = [status for status in statuses if status["language"] in language_scope]
+
     return {
         "workspace": str(root),
         "bindings_path": bindings_path or str(lsp_bindings_path(root)),
+        "scope_languages": sorted(language_scope) if scoped else [],
         "changes": changes,
         "unresolved": unresolved,
         "probes": probes,
-        "statuses": collect_lsp_statuses(root),
+        "statuses": statuses,
     }

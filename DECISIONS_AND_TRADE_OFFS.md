@@ -165,3 +165,40 @@ Suppressions are necessary for tolerated duplication patterns and should survive
   - Lower repetitive triage cost across sessions.
 - Cons:
   - Suppression state must be managed intentionally in CI/reproducible environments.
+
+## D-007: Deterministic Agent-Assisted LSP Wiring
+
+- Status: `Accepted`
+- Effective date: `2026-02-08`
+
+### Context
+
+Bundled language plugins depend on external LSP executables (`pylsp`,
+`typescript-language-server`). In heterogeneous host environments, executable locations
+or command wrappers may differ, and AI agents may not know internal wiring details.
+
+### Decision
+
+Expose one setup MCP tool (`astrograph_lsp_setup`) with deterministic modes:
+
+- `inspect`: report effective command, source, and availability per bundled language.
+- `auto_bind`: try deterministic probes first; if still missing, consume agent-provided
+  observations (`language` + `command`) as fallback inputs.
+- `bind`: persist an explicit command override for one language.
+- `unbind`: remove a persisted override.
+
+Command resolution precedence is:
+
+1. persisted binding (`.metadata_astrograph/lsp_bindings.json`)
+2. environment override (`ASTROGRAPH_*_LSP_COMMAND`)
+3. built-in default command
+
+### Trade-offs
+
+- Pros:
+  - Minimal MCP surface while preserving iterative discoverability for unaware agents.
+  - No LLM dependence inside ASTrograph; behavior remains deterministic Python logic.
+  - Stable per-workspace configuration with explicit provenance.
+- Cons:
+  - Availability checks verify executable reachability, not semantic LSP correctness.
+  - Misconfigured persisted bindings can override otherwise-valid environment defaults.

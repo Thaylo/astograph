@@ -3,8 +3,6 @@
 
 import argparse
 import json
-import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +15,7 @@ from .canonical_hash import weisfeiler_leman_hash
 from .index import CodeStructureIndex
 from .languages.base import node_match
 from .languages.registry import LanguageRegistry
+from .lsp_setup import resolve_lsp_command
 
 
 @dataclass(frozen=True)
@@ -34,7 +33,7 @@ class LSPServerStatus:
 
     language_id: str
     command: list[str]
-    command_source: str  # "default" or "env"
+    command_source: str  # "binding", "default", or "env"
     executable: str | None
     available: bool
     installable: bool
@@ -59,11 +58,12 @@ def _bundled_lsp_specs() -> tuple[LSPServerSpec, ...]:
 
 
 def _resolve_lsp_command(spec: LSPServerSpec) -> tuple[list[str], str]:
-    """Resolve command from env override or default."""
-    command_text = os.getenv(spec.command_env_var, "").strip()
-    if command_text:
-        return shlex.split(command_text), "env"
-    return list(spec.default_command), "default"
+    """Resolve command from persisted binding, env override, or default."""
+    return resolve_lsp_command(
+        language_id=spec.language_id,
+        default_command=spec.default_command,
+        command_env_var=spec.command_env_var,
+    )
 
 
 def _default_install_command(spec: LSPServerSpec) -> list[str] | None:

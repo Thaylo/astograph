@@ -25,5 +25,6 @@ class JavaScriptLSPPlugin(LSPLanguagePluginBase):
                 default_command=_DEFAULT_JS_LSP_COMMAND,
                 command_env_var=_JS_LSP_COMMAND_ENV,
                 timeout_env_var=_JS_LSP_TIMEOUT_ENV,
+                language_id=self.LANGUAGE_ID,
             )
         )

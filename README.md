@@ -87,8 +87,9 @@ Large codebases accumulate duplicate code because:
 | `astrograph_analyze` | Find duplicate code (verified via graph isomorphism) |
 | `astrograph_write` | Write file. Blocks if duplicate exists, warns on similarity |
 | `astrograph_edit` | Edit file. Blocks if new code duplicates existing, warns on similarity |
+| `astrograph_lsp_setup` | Inspect/bind LSP commands for bundled language plugins |
 
-[See all 11 tools →](#tool-reference)
+[See all 12 tools →](#tool-reference)
 
 ## Works With
 
@@ -175,6 +176,17 @@ List suppressed hashes.
 ### astrograph_status
 
 Check server readiness. Returns instantly even during indexing.
+
+### astrograph_lsp_setup
+
+Inspect and configure deterministic LSP command bindings for bundled language plugins.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `mode` | string | No | `inspect` | One of `inspect`, `auto_bind`, `bind`, `unbind` |
+| `language` | string | Conditionally | - | Required for `bind` and `unbind` (`python` or `javascript_lsp`) |
+| `command` | string or string[] | Conditionally | - | Required for `bind`; executable command to persist |
+| `observations` | object[] | No | - | Optional host-discovery hints used by `auto_bind` |
 
 ### astrograph_metadata_erase
 

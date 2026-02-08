@@ -12,11 +12,12 @@ Uses SQLite persistence with file watching for automatic index updates.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from functools import partialmethod, wraps
 from pathlib import Path
@@ -34,6 +35,18 @@ from .event_driven import EventDrivenIndex
 from .index import CodeStructureIndex, DuplicateGroup, IndexEntry
 from .languages.base import node_match
 from .languages.registry import LanguageRegistry
+from .lsp_setup import (
+    auto_bind_missing_servers,
+    bundled_lsp_specs,
+    collect_lsp_statuses,
+    format_command,
+    get_lsp_spec,
+    lsp_bindings_path,
+    parse_command,
+    probe_command,
+    set_lsp_binding,
+    unset_lsp_binding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -820,6 +833,170 @@ class CodeStructureTools(CloseOnExitMixin):
             f"{stats['indexed_files']} files)"
         )
 
+    def _lsp_setup_workspace(self) -> Path:
+        """Resolve workspace root used for LSP binding persistence."""
+        if self._last_indexed_path:
+            indexed = Path(self._last_indexed_path)
+            return indexed.parent if indexed.is_file() else indexed
+
+        detected = self._detect_startup_workspace()
+        if detected:
+            return Path(detected)
+
+        return Path.cwd()
+
+    def _lsp_setup_result(self, payload: dict[str, Any]) -> ToolResult:
+        """Serialize structured LSP setup responses as JSON."""
+        return ToolResult(json.dumps(payload, indent=2, sort_keys=True))
+
+    def lsp_setup(
+        self,
+        mode: str = "inspect",
+        language: str | None = None,
+        command: Sequence[str] | str | None = None,
+        observations: list[dict[str, Any]] | None = None,
+    ) -> ToolResult:
+        """Inspect and configure deterministic command bindings for bundled LSP plugins."""
+        workspace = self._lsp_setup_workspace()
+        normalized_mode = (mode or "inspect").strip().lower()
+        known_languages = [
+            spec.language_id for spec in sorted(bundled_lsp_specs(), key=lambda s: s.language_id)
+        ]
+
+        def _validate_language(mode_name: str) -> ToolResult | None:
+            if not language:
+                return self._lsp_setup_result(
+                    {
+                        "ok": False,
+                        "mode": mode_name,
+                        "error": f"'language' is required when mode='{mode_name}'",
+                        "supported_languages": known_languages,
+                    }
+                )
+
+            if get_lsp_spec(language) is None:
+                return self._lsp_setup_result(
+                    {
+                        "ok": False,
+                        "mode": mode_name,
+                        "error": f"Unsupported language '{language}'",
+                        "supported_languages": known_languages,
+                    }
+                )
+
+            return None
+
+        def _status_for_language(language_id: str) -> dict[str, Any] | None:
+            return next(
+                (
+                    current
+                    for current in collect_lsp_statuses(workspace)
+                    if current["language"] == language_id
+                ),
+                None,
+            )
+
+        if normalized_mode == "inspect":
+            statuses = collect_lsp_statuses(workspace)
+            missing = [status["language"] for status in statuses if not status["available"]]
+            payload: dict[str, Any] = {
+                "ok": True,
+                "mode": normalized_mode,
+                "workspace": str(workspace),
+                "bindings_path": str(lsp_bindings_path(workspace)),
+                "servers": statuses,
+                "missing_languages": missing,
+                "supported_languages": known_languages,
+            }
+            if missing:
+                payload["next_step"] = (
+                    "Call astrograph_lsp_setup with mode='auto_bind'. "
+                    "If still missing, provide observations with language + command."
+                )
+                payload["observation_format"] = {
+                    "language": "python",
+                    "command": ["/absolute/path/to/pylsp"],
+                }
+            return self._lsp_setup_result(payload)
+
+        if normalized_mode == "auto_bind":
+            outcome = auto_bind_missing_servers(workspace=workspace, observations=observations)
+            if outcome["changes"]:
+                LanguageRegistry.reset()
+            outcome.update(
+                {
+                    "ok": True,
+                    "mode": normalized_mode,
+                    "supported_languages": known_languages,
+                }
+            )
+            return self._lsp_setup_result(outcome)
+
+        if normalized_mode == "bind":
+            if validation_error := _validate_language(normalized_mode):
+                return validation_error
+
+            target_language = cast(str, language)
+            parsed_command = parse_command(command)
+            if not parsed_command:
+                return self._lsp_setup_result(
+                    {
+                        "ok": False,
+                        "mode": normalized_mode,
+                        "error": "'command' must be a non-empty string or array",
+                    }
+                )
+
+            saved_command, path = set_lsp_binding(target_language, parsed_command, workspace)
+            LanguageRegistry.reset()
+
+            status = _status_for_language(target_language)
+            probe = probe_command(saved_command)
+            return self._lsp_setup_result(
+                {
+                    "ok": True,
+                    "mode": normalized_mode,
+                    "language": target_language,
+                    "workspace": str(workspace),
+                    "bindings_path": str(path),
+                    "saved_command": saved_command,
+                    "saved_command_text": format_command(saved_command),
+                    "available": probe["available"],
+                    "executable": probe["executable"],
+                    "status": status,
+                }
+            )
+
+        if normalized_mode == "unbind":
+            if validation_error := _validate_language(normalized_mode):
+                return validation_error
+
+            target_language = cast(str, language)
+            removed, path = unset_lsp_binding(target_language, workspace)
+            LanguageRegistry.reset()
+            status = _status_for_language(target_language)
+            return self._lsp_setup_result(
+                {
+                    "ok": True,
+                    "mode": normalized_mode,
+                    "language": target_language,
+                    "workspace": str(workspace),
+                    "bindings_path": str(path),
+                    "removed": removed,
+                    "status": status,
+                }
+            )
+
+        return self._lsp_setup_result(
+            {
+                "ok": False,
+                "mode": normalized_mode,
+                "error": "Invalid mode",
+                "supported_modes": ["inspect", "auto_bind", "bind", "unbind"],
+                "supported_languages": known_languages,
+            }
+        )
+
     def metadata_erase(self) -> ToolResult:
         """
         Erase all persisted metadata (.metadata_astrograph/).
@@ -1165,6 +1342,13 @@ class CodeStructureTools(CloseOnExitMixin):
             return self.metadata_recompute_baseline()
         elif name == "check_staleness":
             return self.check_staleness(path=arguments.get("path"))
+        elif name == "lsp_setup":
+            return self.lsp_setup(
+                mode=arguments.get("mode", "inspect"),
+                language=arguments.get("language"),
+                command=arguments.get("command"),
+                observations=arguments.get("observations"),
+            )
         elif name == "write":
             return self.write(
                 file_path=arguments["file_path"],

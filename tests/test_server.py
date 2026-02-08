@@ -1,7 +1,9 @@
 """Tests for the consolidated MCP server tools."""
 
+import json
 import os
 import re
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -421,6 +423,70 @@ class TestCallTool:
             },
         )
         assert result.text
+
+
+class TestLSPSetupTool:
+    """Tests for deterministic LSP setup tool flow."""
+
+    def test_dispatch_lsp_setup_inspect(self, tools):
+        result = tools.call_tool("lsp_setup", {"mode": "inspect"})
+        payload = json.loads(result.text)
+
+        assert payload["ok"] is True
+        assert payload["mode"] == "inspect"
+        assert "servers" in payload
+
+    def test_lsp_setup_bind_and_unbind(self):
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            os.environ,
+            {"ASTROGRAPH_WORKSPACE": tmpdir},
+            clear=False,
+        ):
+            tools = CodeStructureTools()
+
+            bind_result = tools.lsp_setup(
+                mode="bind",
+                language="python",
+                command=[sys.executable, "-m", "pylsp"],
+            )
+            bind_payload = json.loads(bind_result.text)
+            assert bind_payload["ok"] is True
+            assert bind_payload["language"] == "python"
+
+            bindings_path = Path(tmpdir) / PERSISTENCE_DIR / "lsp_bindings.json"
+            persisted = json.loads(bindings_path.read_text())
+            assert persisted["python"][0] == sys.executable
+
+            unbind_result = tools.lsp_setup(mode="unbind", language="python")
+            unbind_payload = json.loads(unbind_result.text)
+            assert unbind_payload["ok"] is True
+
+            persisted_after = json.loads(bindings_path.read_text())
+            assert "python" not in persisted_after
+            tools.close()
+
+    def test_lsp_setup_auto_bind_uses_observations(self):
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
+            os.environ,
+            {
+                "ASTROGRAPH_WORKSPACE": tmpdir,
+                "ASTROGRAPH_PY_LSP_COMMAND": "missing-python-lsp-xyz",
+            },
+            clear=False,
+        ):
+            tools = CodeStructureTools()
+            result = tools.lsp_setup(
+                mode="auto_bind",
+                observations=[
+                    {
+                        "language": "python",
+                        "command": [sys.executable, "-m", "pylsp"],
+                    }
+                ],
+            )
+            payload = json.loads(result.text)
+            assert any(change["language"] == "python" for change in payload["changes"])
+            tools.close()
 
 
 class TestToolResult:

@@ -254,7 +254,7 @@ class TestMCPProtocol:
         tools = tools_response["result"]["tools"]
         tool_names = {t["name"] for t in tools}
 
-        # Verify all 11 tools are present (event-driven mode)
+        # Verify all 12 tools are present (event-driven mode)
         expected_tools = {
             "astrograph_analyze",
             "astrograph_write",
@@ -265,6 +265,7 @@ class TestMCPProtocol:
             "astrograph_unsuppress_batch",
             "astrograph_list_suppressions",
             "astrograph_status",
+            "astrograph_lsp_setup",
             "astrograph_metadata_erase",
             "astrograph_metadata_recompute_baseline",
         }

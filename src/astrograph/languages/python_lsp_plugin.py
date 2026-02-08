@@ -32,6 +32,7 @@ class PythonLSPPlugin(LSPLanguagePluginBase):
                 default_command=_DEFAULT_PY_LSP_COMMAND,
                 command_env_var=_PY_LSP_COMMAND_ENV,
                 timeout_env_var=_PY_LSP_TIMEOUT_ENV,
+                language_id=self.LANGUAGE_ID,
             )
         )
         self._graph_plugin = PythonPlugin()

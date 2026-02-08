@@ -3,7 +3,7 @@ MCP server for code structure analysis.
 
 Auto-indexes the codebase at startup and maintains the index via file watching.
 
-Provides 11 tools (all prefixed with astrograph_):
+Provides 12 tools (all prefixed with astrograph_):
 - astrograph_analyze: Find duplicates and similar patterns
 - astrograph_write: Write file with duplicate detection (blocks if duplicate exists)
 - astrograph_edit: Edit file with duplicate detection (blocks if duplicate exists)
@@ -13,6 +13,7 @@ Provides 11 tools (all prefixed with astrograph_):
 - astrograph_unsuppress_batch: Remove suppression from multiple hashes
 - astrograph_list_suppressions: List all suppressed hashes
 - astrograph_status: Check server readiness (returns instantly even during indexing)
+- astrograph_lsp_setup: Inspect/bind LSP commands for bundled language plugins
 - astrograph_metadata_erase: Erase all persisted metadata
 - astrograph_metadata_recompute_baseline: Erase metadata and re-index from scratch
 """
@@ -146,6 +147,55 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="astrograph_lsp_setup",
+                description=(
+                    "Inspect and configure deterministic LSP command bindings "
+                    "for bundled language plugins."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": ["inspect", "auto_bind", "bind", "unbind"],
+                            "description": "Setup mode (default: inspect)",
+                            "default": "inspect",
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "Language ID for bind/unbind (python or javascript_lsp)",
+                        },
+                        "command": {
+                            "oneOf": [
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}},
+                            ],
+                            "description": "LSP command for bind mode",
+                        },
+                        "observations": {
+                            "type": "array",
+                            "description": "Optional host-discovery hints used by auto_bind",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "language": {"type": "string"},
+                                    "command": {
+                                        "oneOf": [
+                                            {"type": "string"},
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "string"},
+                                            },
+                                        ]
+                                    },
+                                },
+                                "required": ["language", "command"],
+                            },
+                        },
+                    },
+                },
+            ),
+            Tool(
                 name="astrograph_metadata_erase",
                 description="Erase all persisted metadata (.metadata_astrograph/). Resets server to idle.",
                 inputSchema={
@@ -214,6 +264,7 @@ def create_server() -> Server:
         "astrograph_unsuppress_batch": "unsuppress_batch",
         "astrograph_list_suppressions": "list_suppressions",
         "astrograph_status": "status",
+        "astrograph_lsp_setup": "lsp_setup",
         "astrograph_metadata_erase": "metadata_erase",
         "astrograph_metadata_recompute_baseline": "metadata_recompute_baseline",
     }

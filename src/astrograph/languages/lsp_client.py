@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from ..lsp_setup import resolve_lsp_command
 from ._lsp_base import LSPClient, LSPPosition, LSPRange, LSPSymbol
 
 logger = logging.getLogger(__name__)
@@ -376,11 +377,17 @@ def create_subprocess_client_from_env(
     default_command: Sequence[str],
     command_env_var: str,
     timeout_env_var: str,
+    language_id: str,
+    workspace: str | Path | None = None,
     default_timeout: float = 5.0,
 ) -> SubprocessLSPClient:
-    """Create a subprocess LSP client with env-based command/timeout overrides."""
-    command_text = os.getenv(command_env_var, "")
-    command = shlex.split(command_text) if command_text.strip() else list(default_command)
+    """Create a subprocess LSP client with binding/env/default command resolution."""
+    command, _source = resolve_lsp_command(
+        language_id=language_id,
+        default_command=default_command,
+        command_env_var=command_env_var,
+        workspace=workspace,
+    )
 
     timeout_text = os.getenv(timeout_env_var, str(default_timeout))
     try:
